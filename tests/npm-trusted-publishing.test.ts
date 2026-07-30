@@ -24,6 +24,15 @@ test("Trusted Publishing workflow is OIDC-only and fail-closed before dual publi
   assert.match(ciWorkflow, /npm install --global npm@11\.17\.0/);
   assert.doesNotMatch(workflow, /NODE_AUTH_TOKEN|NPM_TOKEN|secrets\./);
 
+  const validateJobIndex = workflow.indexOf("\n  validate:");
+  const publishJobIndex = workflow.indexOf("\n  publish:");
+  assert.notEqual(validateJobIndex, -1);
+  assert.notEqual(publishJobIndex, -1);
+  const validateJob = workflow.slice(validateJobIndex, publishJobIndex);
+  const publishJob = workflow.slice(publishJobIndex);
+  assert.doesNotMatch(validateJob, /id-token:\s*write/);
+  assert.match(publishJob, /id-token:\s*write/);
+
   const checkIndex = workflow.indexOf("npm run check");
   const repositoryGateIndex = workflow.indexOf(
     "for workflow_name in CI CodeQL",
@@ -32,8 +41,17 @@ test("Trusted Publishing workflow is OIDC-only and fail-closed before dual publi
   const packageSmokeIndex = workflow.indexOf("qa-lab cli-mcp-smoke");
   const hermesSmokeIndex = workflow.indexOf("hermes smoke");
   const readinessIndex = workflow.indexOf("release hermes-readiness");
-  const canonicalPublishIndex = workflow.indexOf('npm publish "$canonical_tarball"');
-  const compatibilityPublishIndex = workflow.indexOf('npm publish "$compatibility_tarball"');
+  const canonicalPublishIndex = workflow.indexOf(
+    'npm publish "$release_root/$CANONICAL_TARBALL"',
+  );
+  const compatibilityPublishIndex = workflow.indexOf(
+    'npm publish "$release_root/$COMPATIBILITY_TARBALL"',
+  );
+  const downloadIndex = publishJob.indexOf("Download the exact validated packages");
+  const transferredChecksumIndex = publishJob.indexOf(
+    "Verify artifact identity and checksums after transfer",
+  );
+  const publishIndex = publishJob.indexOf("Publish canonical then compatibility package");
 
   for (const [label, index] of [
     ["repo check", checkIndex],
@@ -55,12 +73,20 @@ test("Trusted Publishing workflow is OIDC-only and fail-closed before dual publi
   assert.ok(hermesSmokeIndex < canonicalPublishIndex);
   assert.ok(readinessIndex < canonicalPublishIndex);
   assert.ok(canonicalPublishIndex < compatibilityPublishIndex);
+  assert.ok(downloadIndex < transferredChecksumIndex);
+  assert.ok(transferredChecksumIndex < publishIndex);
   assert.match(workflow, /git merge-base --is-ancestor "\$GITHUB_SHA" origin\/main/);
-  assert.match(workflow, /npm view "\$package_name@\$package_version" version/);
+  assert.match(workflow, /--mode recoverable/);
 });
 
 test("dual-package preparation maps release tags and preserves package payload parity", async () => {
   const module = await import("../scripts/prepare-dual-npm-release.mjs");
+  const packageJson = JSON.parse(
+    await readFile(path.join(repoRoot, "package.json"), "utf8"),
+  );
+  const packageVersion = packageJson.version;
+  const releaseTag = `v${packageVersion}`;
+  const expectedDistTag = module.distTagForVersion(packageVersion);
 
   assert.equal(module.distTagForVersion("1.8.0"), "latest");
   assert.equal(module.distTagForVersion("1.8.0-beta.1"), "beta");
@@ -81,12 +107,12 @@ test("dual-package preparation maps release tags and preserves package payload p
     const manifest = await module.prepareDualNpmRelease({
       sourceDir: repoRoot,
       outputDir,
-      releaseTag: "v1.7.0",
+      releaseTag,
     });
 
     assert.equal(manifest.schema, "lco.npmDualPackage.v1");
-    assert.equal(manifest.version, "1.7.0");
-    assert.equal(manifest.distTag, "latest");
+    assert.equal(manifest.version, packageVersion);
+    assert.equal(manifest.distTag, expectedDistTag);
     assert.equal(manifest.payloadParity, true);
     assert.deepEqual(
       manifest.packages.map((entry: { name: string }) => entry.name),
@@ -111,4 +137,72 @@ test("dual-package preparation maps release tags and preserves package payload p
   } finally {
     await rm(outputDir, { recursive: true, force: true });
   }
+});
+
+test("release output safety and registry recovery fail closed", async () => {
+  const releaseModule = await import("../scripts/prepare-dual-npm-release.mjs");
+  const registryModule = await import("../scripts/check-npm-release-slots.mjs");
+
+  assert.throws(
+    () => releaseModule.assertSafeOutputRoot("/work/repo", "/work"),
+    /must not contain/i,
+  );
+  assert.throws(
+    () => releaseModule.assertSafeOutputRoot("/work/repo", "/work/repo/output"),
+    /outside the source checkout/i,
+  );
+  assert.doesNotThrow(() =>
+    releaseModule.assertSafeOutputRoot("/work/repo", "/release/output"),
+  );
+
+  const expected = {
+    expectedVersion: "1.8.0",
+    expectedIntegrity: "sha512-candidate",
+  };
+  assert.equal(
+    registryModule.classifyRegistrySlot({
+      mode: "recoverable",
+      ...expected,
+      registryEntry: { exists: false },
+    }),
+    "missing",
+  );
+  assert.equal(
+    registryModule.classifyRegistrySlot({
+      mode: "recoverable",
+      ...expected,
+      registryEntry: {
+        exists: true,
+        version: "1.8.0",
+        integrity: "sha512-candidate",
+      },
+    }),
+    "matching",
+  );
+  assert.throws(
+    () =>
+      registryModule.classifyRegistrySlot({
+        mode: "recoverable",
+        ...expected,
+        registryEntry: {
+          exists: true,
+          version: "1.8.0",
+          integrity: "sha512-other",
+        },
+      }),
+    /does not match/i,
+  );
+  assert.throws(
+    () =>
+      registryModule.classifyRegistrySlot({
+        mode: "unused",
+        ...expected,
+        registryEntry: {
+          exists: true,
+          version: "1.8.0",
+          integrity: "sha512-candidate",
+        },
+      }),
+    /already published/i,
+  );
 });

@@ -181,7 +181,7 @@ export async function verifyPreparedDualNpmRelease(outputDir) {
   return manifest;
 }
 
-function assertSafeOutputRoot(sourceRoot, outputRoot) {
+export function assertSafeOutputRoot(sourceRoot, outputRoot) {
   const parsed = path.parse(outputRoot);
   if (outputRoot === parsed.root || outputRoot === os.homedir()) {
     throw new Error("Output directory is too broad");
@@ -194,6 +194,15 @@ function assertSafeOutputRoot(sourceRoot, outputRoot) {
       !path.isAbsolute(relativeToSource))
   ) {
     throw new Error("Output directory must be outside the source checkout");
+  }
+  const relativeToOutput = path.relative(outputRoot, sourceRoot);
+  if (
+    relativeToOutput === "" ||
+    (!relativeToOutput.startsWith(`..${path.sep}`) &&
+      relativeToOutput !== ".." &&
+      !path.isAbsolute(relativeToOutput))
+  ) {
+    throw new Error("Output directory must not contain the source checkout");
   }
 }
 
@@ -231,7 +240,12 @@ function run(command, args, cwd) {
     stdio: ["ignore", "pipe", "pipe"],
   });
   if (result.status !== 0) {
-    throw new Error(`${command} failed with exit code ${result.status ?? "unknown"}`);
+    const reason = result.signal
+      ? `signal ${result.signal}`
+      : `exit code ${result.status ?? "unknown"}`;
+    throw new Error(
+      `${command} failed with ${reason}: ${(result.stderr ?? "").trim()}`,
+    );
   }
   return result;
 }

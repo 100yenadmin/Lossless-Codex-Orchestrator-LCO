@@ -189,7 +189,10 @@ replace the pre-tag release status, live/runtime canaries, GitHub Release, or
 post-publish finalization and clean-install gates.
 
 Do not store an npm write token in GitHub. Manual `npm publish` is a documented
-emergency fallback, not the routine path.
+emergency fallback, not the routine path. The fallback must use the two exact
+tarballs and dist-tag recorded in `dual-package-manifest.json`, publish canonical
+before compatibility, verify both registry integrities, and stop on a partial
+result without rebuilding either artifact.
 
 ## Blocking Signals
 

@@ -502,15 +502,22 @@ already record the explicit npm publication authorization. Pushing the exact
 Only after those steps pass can the protected `npm-release` job receive an OIDC
 credential. It verifies the transferred tarball checksums, repeats the registry
 slot check, publishes the canonical package followed by the compatibility
-package, and verifies both identities. The workflow does not choose a version,
+package, and verifies both identities and registry integrities. A rerun may
+treat an existing package/version as satisfied only when its registry integrity
+matches the validated tarball, so a failed compatibility publish can resume
+without changing either artifact. The workflow does not choose a version,
 create a tag, create a GitHub Release, change release notes, or run
 post-publication finalization and runtime gates.
 
 Manual publication remains the emergency fallback. Do not add `NPM_TOKEN`,
-`NODE_AUTH_TOKEN`, or another npm write secret to the workflow. If the canonical
-publish succeeds and compatibility publication fails, stop, record the partial
-release, and use [Release Rollback](RELEASE_ROLLBACK.md); do not silently retry
-with a different artifact.
+`NODE_AUTH_TOKEN`, or another npm write secret to the workflow. Use only the
+two tarballs named in `dual-package-manifest.json` from the validated workflow
+artifact. Verify each tarball against the manifest SHA-256, publish the canonical
+entry first and the compatibility entry second with the manifest `distTag`, then
+verify that both registry `dist.integrity` values match the manifest. If either
+publication or verification fails, stop, record the partial release, and use
+[Release Rollback](RELEASE_ROLLBACK.md). Resume only with the same validated
+tarballs; never substitute a rebuilt artifact or silently choose a new version.
 
 ## Public Release Steps
 
@@ -523,12 +530,14 @@ Only after the approval gates are satisfied:
    identities through the protected `npm-release` environment.
 4. If Trusted Publishing is unavailable and the release tracker authorizes the
    emergency manual path, publish npm only if the approval covers npm
-   publication. Use
-   `npm publish --tag beta` for beta releases, `npm publish --tag next` for
-   release candidates, and `npm publish --tag latest` for stable releases. For
-   release candidates, verify `package.json` `publishConfig.tag` is `next`
-   before publishing. For stable releases, verify `package.json`
-   `publishConfig.tag` is `latest` before publishing.
+   publication. Download the validated workflow artifact, verify it with
+   `node scripts/prepare-dual-npm-release.mjs --verify-output-dir <artifact-dir>`,
+   and read the canonical tarball, compatibility tarball, and dist-tag from
+   `dual-package-manifest.json`. Publish those exact tarballs in canonical-then-
+   compatibility order with `npm publish <tarball> --tag <manifest-dist-tag>
+   --access public`. Verify both registry versions and `dist.integrity` values
+   against the manifest. If only one package publishes, follow the partial-
+   release rule above; do not rebuild the other tarball.
 5. Create the GitHub Release if the approval covers GitHub Release creation.
 6. Install from the published artifact and rerun the OpenClaw user-path smoke.
    If `npm view lossless-codex-orchestrator@<version>` or
