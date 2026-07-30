@@ -499,6 +499,32 @@ test("Codex control rejects failed same-connection sequence responses before liv
   }
 });
 
+test("Codex direct control keeps deterministic pre-send errors distinct from indeterminate delivery", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-direct-error-classification-"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const control = createCodexControl({
+    audit,
+    client: {
+      request: async () => {
+        throw new Error("Codex daemon transport requires an absolute Unix socket path");
+      }
+    }
+  });
+
+  try {
+    const dryRun = await control.startThread({ dryRun: true });
+    await assert.rejects(
+      () => control.startThread({
+        dryRun: false,
+        approvalAuditId: dryRun.approvalAuditId
+      }),
+      /requires an absolute Unix socket path/
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Codex control returns structured proof when active runtime posture blocks control before send", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-control-runtime-posture-block-"));
   const audit = createAuditStore(join(root, "audit.jsonl"));

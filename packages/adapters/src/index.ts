@@ -921,7 +921,8 @@ export function createTargetControl(options: { targetName: string; methodPolicy:
       rawResponse = sequenceResult
         ? sequenceResult.responses.at(-1) ?? { ok: true }
         : await options.client.request(spec.method, spec.params);
-    } catch {
+    } catch (error) {
+      if (!isIndeterminateControlError(error)) throw error;
       throw new Error("codex_control_attempt_indeterminate");
     }
     if (isIndeterminateControlResponse(rawResponse)) {
@@ -1427,13 +1428,13 @@ function isIndeterminateControlResponse(value: unknown): boolean {
   const response = asRecord(value);
   if (response?.ok !== false) return false;
   const error = typeof response.error === "string" ? response.error : JSON.stringify(response.error ?? "");
-  return /timed out waiting|connection (?:failed|closed|lost)|socket|hang up|econnreset|broken pipe/i.test(error);
+  return /timed out waiting|connection (?:failed|closed|lost)|socket (?:hang up|closed|is not open)|websocket (?:closed|is not open)|econnreset|epipe|broken pipe/i.test(error);
 }
 
 function isIndeterminateControlError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return message === "codex_control_attempt_indeterminate"
-    || /timed out waiting|connection (?:failed|closed|lost)|socket|hang up|econnreset|broken pipe|websocket/i.test(message);
+    || /timed out waiting|connection (?:failed|closed|lost)|socket (?:hang up|closed|is not open)|websocket (?:closed|is not open)|econnreset|epipe|broken pipe/i.test(message);
 }
 
 function safeRuntimeBlockFromSequence(sequence: CodexControlSequenceResult | undefined): Record<string, unknown> | null {
