@@ -671,7 +671,7 @@ export type AuditStore = Omit<ReturnType<typeof createAuditStore>, "deriveSubkey
   fingerprintTextIfConfigured?(value: string): string | null;
 };
 type ControlAuditStore = Pick<AuditStore, "path" | "append" | "find" | "fingerprintText" | "fingerprintValue"> & {
-  tail?(limit?: number): AuditRecord[];
+  hasApprovalUse?(approvalAuditId: string): boolean;
 };
 
 export type TargetControlExecuteSpec = {
@@ -757,6 +757,19 @@ export function createAuditStore(path: string) {
         if (parsed.id === id) return parsed;
       }
       return null;
+    },
+    hasApprovalUse(approvalAuditId: string): boolean {
+      if (!existsSync(path)) return false;
+      const lines = readFileSync(path, "utf8").split(/\r?\n/).filter(Boolean);
+      for (let index = lines.length - 1; index >= 0; index -= 1) {
+        try {
+          const parsed = JSON.parse(lines[index]!) as AuditRecord;
+          if (parsed.approvalAuditId === approvalAuditId) return true;
+        } catch {
+          // Ignore corrupt partial writes so earlier durable claims remain discoverable.
+        }
+      }
+      return false;
     },
     tail(limit = 20): AuditRecord[] {
       if (!existsSync(path)) return [];
@@ -844,7 +857,10 @@ export function createTargetControl(options: { targetName: string; methodPolicy:
       throw new Error("approval_audit_id dry-run record expired");
     }
     assertCodexControlTransportCapability(options.client, requiresSequence, Boolean(spec.turnResolution));
-    if (options.audit.tail?.(1000).some((record) => record.approvalAuditId === previous.id)) {
+    if (!options.audit.hasApprovalUse) {
+      throw new Error("approval consumption lookup is unavailable");
+    }
+    if (options.audit.hasApprovalUse(previous.id)) {
       throw new Error("approval_audit_id has already been used");
     }
     options.audit.append({

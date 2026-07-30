@@ -392,6 +392,9 @@ const metadataOnlyAudit: AuditStore = {
   find() {
     return null;
   },
+  hasApprovalUse() {
+    return false;
+  },
   tail() {
     return [];
   },

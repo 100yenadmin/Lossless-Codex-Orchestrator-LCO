@@ -426,6 +426,16 @@ test("delivery consumes approval before transport and reports an indeterminate d
     assert.deepEqual(first.reason_codes, ["control_attempt_indeterminate", "approval_consumed_do_not_retry"]);
     assert.equal(fixture.sequenceCalls.length, 1);
 
+    for (let index = 0; index < 1_000; index += 1) {
+      audit.append({
+        action: "unrelated_dry_run",
+        target: `unrelated-${index}`,
+        paramsHash: `unrelated-${index}`,
+        approvalState: "dry_run",
+        live: false
+      });
+    }
+
     const replay = await router.deliver({
       targetRef: route.target_ref!,
       message: "Steer safely",
