@@ -505,17 +505,19 @@ slot check, publishes the canonical package followed by the compatibility
 package, and verifies both identities and registry integrities. A rerun may
 treat an existing package/version as satisfied only when its registry integrity
 matches the validated tarball, so a failed compatibility publish can resume
-without changing either artifact. The workflow does not choose a version,
-create a tag, create a GitHub Release, change release notes, or run
-post-publication finalization and runtime gates.
+without changing either artifact. Recovery and final verification also require
+the manifest dist-tag to resolve to that version for both names. The workflow
+does not choose a version, create a tag, create a GitHub Release, change release
+notes, or run post-publication finalization and runtime gates.
 
 Manual publication remains the emergency fallback. Do not add `NPM_TOKEN`,
 `NODE_AUTH_TOKEN`, or another npm write secret to the workflow. Use only the
 two tarballs named in `dual-package-manifest.json` from the validated workflow
 artifact. Verify each tarball against the manifest SHA-256, publish the canonical
 entry first and the compatibility entry second with the manifest `distTag`, then
-verify that both registry `dist.integrity` values match the manifest. If either
-publication or verification fails, stop, record the partial release, and use
+verify that both registry `dist.integrity` values match the manifest and the
+manifest dist-tag resolves to that version for both names. If either publication
+or verification fails, stop, record the partial release, and use
 [Release Rollback](RELEASE_ROLLBACK.md). Resume only with the same validated
 tarballs; never substitute a rebuilt artifact or silently choose a new version.
 
@@ -536,7 +538,8 @@ Only after the approval gates are satisfied:
    `dual-package-manifest.json`. Publish those exact tarballs in canonical-then-
    compatibility order with `npm publish <tarball> --tag <manifest-dist-tag>
    --access public`. Verify both registry versions and `dist.integrity` values
-   against the manifest. If only one package publishes, follow the partial-
+   against the manifest, and verify that the manifest dist-tag resolves to that
+   version for both names. If only one package publishes, follow the partial-
    release rule above; do not rebuild the other tarball.
 5. Create the GitHub Release if the approval covers GitHub Release creation.
 6. Install from the published artifact and rerun the OpenClaw user-path smoke.

@@ -246,5 +246,5 @@ jobs:
           release_root="$RUNNER_TEMP/lco-npm-release"
           node scripts/check-npm-release-slots.mjs \
             --manifest "$release_root/dual-package-manifest.json" \
-            --mode recoverable \
+            --mode published \
             --output "$RUNNER_TEMP/npm-published-slots.json"

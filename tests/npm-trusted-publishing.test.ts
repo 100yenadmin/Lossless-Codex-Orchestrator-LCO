@@ -77,6 +77,7 @@ test("Trusted Publishing workflow is OIDC-only and fail-closed before dual publi
   assert.ok(transferredChecksumIndex < publishIndex);
   assert.match(workflow, /git merge-base --is-ancestor "\$GITHUB_SHA" origin\/main/);
   assert.match(workflow, /--mode recoverable/);
+  assert.match(workflow, /--mode published/);
 });
 
 test("dual-package preparation maps release tags and preserves package payload parity", async () => {
@@ -124,7 +125,7 @@ test("dual-package preparation maps release tags and preserves package payload p
       assert.ok(entry.fileCount > 0);
     }
     const verified = await module.verifyPreparedDualNpmRelease(outputDir);
-    assert.equal(verified.version, "1.7.0");
+    assert.equal(verified.version, packageVersion);
 
     await writeFile(
       path.join(outputDir, manifest.packages[0].file),
@@ -175,6 +176,7 @@ test("release output safety and registry recovery fail closed", async () => {
         exists: true,
         version: "1.8.0",
         integrity: "sha512-candidate",
+        distTagVersion: "1.8.0",
       },
     }),
     "matching",
@@ -188,6 +190,7 @@ test("release output safety and registry recovery fail closed", async () => {
           exists: true,
           version: "1.8.0",
           integrity: "sha512-other",
+          distTagVersion: "1.8.0",
         },
       }),
     /does not match/i,
@@ -201,8 +204,32 @@ test("release output safety and registry recovery fail closed", async () => {
           exists: true,
           version: "1.8.0",
           integrity: "sha512-candidate",
+          distTagVersion: "1.8.0",
         },
       }),
     /already published/i,
+  );
+  assert.throws(
+    () =>
+      registryModule.classifyRegistrySlot({
+        mode: "recoverable",
+        ...expected,
+        registryEntry: {
+          exists: true,
+          version: "1.8.0",
+          integrity: "sha512-candidate",
+          distTagVersion: "1.7.0",
+        },
+      }),
+    /dist-tag does not match/i,
+  );
+  assert.throws(
+    () =>
+      registryModule.classifyRegistrySlot({
+        mode: "published",
+        ...expected,
+        registryEntry: { exists: false },
+      }),
+    /not published/i,
   );
 });

@@ -5,7 +5,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-const SUPPORTED_MODES = new Set(["unused", "recoverable"]);
+const SUPPORTED_MODES = new Set(["unused", "recoverable", "published"]);
 
 export function classifyRegistrySlot({
   mode,
@@ -17,6 +17,9 @@ export function classifyRegistrySlot({
     throw new Error(`Unsupported registry-slot mode: ${mode}`);
   }
   if (!registryEntry.exists) {
+    if (mode === "published") {
+      throw new Error("Registry slot is not published");
+    }
     return "missing";
   }
   if (mode === "unused") {
@@ -27,6 +30,9 @@ export function classifyRegistrySlot({
     registryEntry.integrity !== expectedIntegrity
   ) {
     throw new Error("Published registry artifact does not match the candidate");
+  }
+  if (registryEntry.distTagVersion !== expectedVersion) {
+    throw new Error("Published registry dist-tag does not match the candidate");
   }
   return "matching";
 }
@@ -39,7 +45,11 @@ export async function checkNpmReleaseSlots({
   assertManifest(manifest);
   const packages = [];
   for (const entry of manifest.packages) {
-    const registryEntry = await lookup(entry.name, manifest.version);
+    const registryEntry = await lookup(
+      entry.name,
+      manifest.version,
+      manifest.distTag,
+    );
     const state = classifyRegistrySlot({
       mode,
       expectedVersion: manifest.version,
@@ -60,6 +70,8 @@ function assertManifest(manifest) {
   if (
     manifest?.schema !== "lco.npmDualPackage.v1" ||
     typeof manifest.version !== "string" ||
+    typeof manifest.distTag !== "string" ||
+    manifest.distTag.length === 0 ||
     !Array.isArray(manifest.packages) ||
     manifest.packages.length !== 2
   ) {
@@ -77,7 +89,7 @@ function assertManifest(manifest) {
   }
 }
 
-function lookupRegistryEntry(packageName, version) {
+function lookupRegistryEntry(packageName, version, distTag) {
   const result = spawnSync(
     "npm",
     [
@@ -103,6 +115,7 @@ function lookupRegistryEntry(packageName, version) {
       exists: true,
       version: parsed.version,
       integrity: parsed["dist.integrity"],
+      distTagVersion: readDistTagVersion(packageName, distTag),
     };
   }
   const diagnostic = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
@@ -110,6 +123,29 @@ function lookupRegistryEntry(packageName, version) {
     return { exists: false };
   }
   throw new Error(`Registry lookup failed for ${packageName}`);
+}
+
+function readDistTagVersion(packageName, distTag) {
+  const result = spawnSync(
+    "npm",
+    ["view", `${packageName}@${distTag}`, "version", "--json"],
+    {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  if (result.status !== 0) {
+    throw new Error(`Registry dist-tag lookup failed for ${packageName}`);
+  }
+  try {
+    const parsed = JSON.parse(result.stdout);
+    if (typeof parsed !== "string" || parsed.length === 0) {
+      throw new Error("invalid");
+    }
+    return parsed;
+  } catch {
+    throw new Error(`Registry returned malformed dist-tag metadata for ${packageName}`);
+  }
 }
 
 function parseArgs(argv) {
