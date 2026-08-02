@@ -122,7 +122,7 @@ test("prepared-state migration adds additive shadow tables to an existing 1.1-st
     ]);
     const touchedFileIndexes = db.prepare("PRAGMA index_list(codex_touched_files)").all() as Array<{ name: string; origin: string }>;
     const indexColumns = (name: string): string[] => (
-      db.prepare(`PRAGMA index_info(${JSON.stringify(name)})`).all() as Array<{ name: string }>
+      db!.prepare(`PRAGMA index_info(${JSON.stringify(name)})`).all() as Array<{ name: string }>
     ).map((row) => row.name);
     assert.equal(touchedFileIndexes.some((row) => (
       row.origin === "u"
