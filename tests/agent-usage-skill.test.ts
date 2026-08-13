@@ -138,7 +138,7 @@ test("OpenClaw agent usage skill teaches the Desktop-first daily loop without wi
   }
 
   for (const forbidden of [
-    /Andrew approval/i,
+    /named-person approval/i,
     /use raw transcripts as the default/i,
     /run unapproved live control/i,
     /generic GUI mutation is supported/i,
