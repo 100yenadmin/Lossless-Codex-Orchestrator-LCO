@@ -15,13 +15,12 @@ LCO is a **Codex orchestration engine with a runtime-neutral core**. The engine
 no harness-specific coupling; harnesses reach it through adapters. Adapter tiers
 are prioritized:
 
-**Tier 1 - Hermes (primary over stdio MCP; native adapter deferred).** Hermes
-agents orchestrate Codex through the standards-compliant MCP server as the
-primary supported agent path. Candidate releases prove initialization,
-notification silence, tool registration, structured results, default indexed
-search, and latency with Hermes-compatible client evidence. A Hermes-native
-adapter remains separate deeper work; see
-[docs/HERMES_ADAPTER_BOUNDARY.md](docs/HERMES_ADAPTER_BOUNDARY.md).
+**Tier 1 - Eva/Hermes (persistent daemon route; stdio smoke is compatibility
+only).** Eva/Hermes sets `LCO_CODEX_TRANSPORT=daemon` for a persistent
+WebSocket JSON-RPC Unix-socket connection to an already-running Codex daemon;
+there is no stdio fallback. Its required surface is sixteen tools, including
+opaque route/deliver/interrupt. A Hermes-native adapter remains separate deeper
+work; see [docs/HERMES_ADAPTER_BOUNDARY.md](docs/HERMES_ADAPTER_BOUNDARY.md).
 
 **Tier 2 - OpenClaw (compatibility supported).** The native plugin
 (`openclaw.plugin.json`, real plugin-SDK wiring, tiered tool profiles, and
@@ -49,19 +48,23 @@ tier: a capability such as live control is part of a tier only once it has real
 evidence on that tier. OpenClaw having a proof does not extend the capability to
 Hermes or generic MCP until each is independently proven.
 
-## Current Release Roadmap: 1.6 Control Plane
+## Current Release: 1.7.0 Eva Control Plane
 
 The published stable release is whatever npm `latest` and GitHub Releases show
 for the same version. A version in the source tree remains a candidate until
 those publication authorities agree; source metadata is not published release
-proof. The Control Plane candidate keeps
+proof. `1.7.0` is publicly released: npm `latest` and GitHub
+Release `v1.7.0` agree on the published version. Publication proves artifact
+availability only; Eva runtime/customer acceptance and the 1.7.0 Trusted
+Publishing proof remain unproven and are tracked by the runtime gate. The
+shipped Control Plane keeps
 `lossless-codex-orchestrator` as the canonical npm package, keeps
 `lossless-openclaw-orchestrator` as a maintained compatibility package, adds
 bounded session-diff cursors and review-then-drive dry-runs, verifies the Codex
 scratch control matrix under audit and post-action refresh, materializes LCM
 prepared cards with peer diagnostics, validates Claude as a second target
-family without claiming Claude live control, and stabilizes the Hermes stdio
-MCP path.
+family without claiming Claude live control, and ships the Eva daemon route
+alongside separate OpenClaw loopback/stdio compatibility.
 
 The stable packages through the latest published release are completed release
 lines. M11 proved
@@ -75,14 +78,12 @@ Release train status:
 
 - **Milestone 13: LCO 1.5 Coverage & Cockpit Release Train.** Completed and
   administratively closed after the 1.5.0 release.
-- **Milestone 14: LCO 1.6 Control Plane Release Train.** Active. The current
-  acceptance gate is Hermes-first stabilization, exact-head package smoke, and
-  isolated Hermes-client readiness. Merge, publication, and active-Eva runtime
-  proof remain later gates.
-- **Milestone 15: LCO 1.7 Matrix Stretch Release Train.** Later roadmap lane for
-  Claude live control, bidirectional flows, a native Hermes adapter and
-  watch-daemon work, large-file fallback, and the separately gated recall-v2
-  evaluation.
+- **Milestone 14: LCO 1.6 Control Plane Release Train.** Completed and
+  administratively closed after the 1.6.1 release.
+- **Milestone 15: LCO 1.7 Eva Remote Codex Control.** Source and public release
+  are complete. Issue #799 is the sole runtime gate: upgrade only Eva's isolated
+  LCO package with rollback, then pass daemon CLI, reconnect, interrupt,
+  Telegram-direction, and Desktop Computer Use canaries.
 
 Current target:
 
@@ -91,10 +92,10 @@ Current target:
   doctrine belongs in [docs/CLAIM_AUDIT.md](docs/CLAIM_AUDIT.md),
   [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md), QA Lab reports, issue
   comments, and [docs/BETA_RELEASE_RUNBOOK.md](docs/BETA_RELEASE_RUNBOOK.md).
-- Stabilize the 1.6 candidate across CLI, Hermes/MCP, and OpenClaw
-  compatibility: session diff, drive dry-run, Codex audit binding and refresh
-  proof, LCM prepared cards, peer doctoring, notification-safe JSON-RPC, and
-  bounded default search.
+- Close the 1.7 Eva runtime gate without widening it: use the existing
+  Codex-owned daemon, preserve approval and opaque-target checks, keep Desktop
+  tasks on Hermes Computer Use, and retain OpenClaw as a separate compatibility
+  path.
 - Treat `lco qa-lab tool-coverage --coverage-policy full --strict` as the
   full-surface GA gate over the canonical tool surface. Missing product evidence
   is a blocker unless release copy explicitly excludes that tool or workflow.
@@ -232,9 +233,16 @@ Expected product-management workflows:
 
 ## Product Shape
 
-- `packages/core` is the local index, recall, safe-summary, source-ref, and SQLite layer.
-- `packages/adapters` is the safety and integration boundary for Codex transport, audit, redaction, CUA Driver, Peekaboo, and future adapters.
-- `packages/mcp-server` exposes the `lco_*` tool surface for OpenClaw and other MCP clients.
+- `packages/core` is the local index, recall, safe-summary, source-ref, and
+  SQLite/FTS5 layer; FTS is derived cache, not source authority.
+- `packages/adapters` is the policy-gated boundary for Codex transport, audit,
+  redaction, CUA Driver, Peekaboo, and future adapters.
+- `packages/mcp-server` exposes `lco_*` through only `initialize`, `tools/list`,
+  and `tools/call`.
+- Eva/Hermes uses a persistent Unix-socket daemon; opaque route/deliver/interrupt
+  revalidates ownership/state/turn/approval. Desktop tasks stay on Hermes
+  Computer Use with exact target and composer readback; OpenClaw loopback/stdio
+  compatibility is separate from Eva runtime/customer proof.
 - `packages/cli` is the operator and evidence surface for `onboard status`, `doctor`, `index`, `search`, `grep`, `describe`, `expand`, `desktop`, and release commands.
 - `packages/openclaw-plugin` is the OpenClaw package and manifest layer.
 - `skills/` contains the packaged agent-facing playbook for safe staged recall and approval-gated dry-run workflows.
@@ -250,7 +258,8 @@ Every meaningful issue should follow this loop:
 4. Run focused validation.
 5. Run `npm run check` when source behavior, package contracts, or tool schemas changed.
 6. Smoke through the public CLI, MCP server, or local OpenClaw gateway when that is the user-facing surface.
-7. Save public-safe evidence under `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/<issue-slug>/`.
+7. Save public-safe evidence under `$LCO_EVIDENCE_ROOT/YYYY-MM-DD/<issue-slug>/`,
+   where `LCO_EVIDENCE_ROOT` is chosen by the operator on the current machine.
 8. Update the GitHub issue and PR with what works, what is not proven, commands run, evidence path, and next action.
 9. Keep sprint state oriented to this vision before filing follow-up issues.
 
@@ -396,7 +405,7 @@ Release candidates follow [docs/BETA_RELEASE_RUNBOOK.md](docs/BETA_RELEASE_RUNBO
 
 ## Capability Boundaries
 
-Stable 1.6.0 product statement:
+Stable 1.7.0 product statement:
 
 > Coordinate local Codex work through OpenClaw/MCP with bounded recall and session diffs, audited review-then-drive dry-runs, the four-row `lco.qaLab.liveControlMatrix.v1` send/resume/steer/interrupt matrix on approved disposable QA targets, and read-only LCM prepared state; Claude targeting remains dry-run only.
 

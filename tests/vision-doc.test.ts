@@ -14,7 +14,7 @@ test("VISION.md captures product, eval, dogfood, cadence, and capability-boundar
 
   for (const heading of [
     "## North Star",
-    "## Current Release Roadmap: 1.6 Control Plane",
+    "## Current Release: 1.7.0 Eva Control Plane",
     "## Completed Proof: Working App Runtime",
     "## Primary User Stories",
     "## Orchestrator Product-Management Mode",
@@ -63,7 +63,7 @@ test("VISION.md captures product, eval, dogfood, cadence, and capability-boundar
     /Milestone 14/i,
     /1\.6 Control Plane/i,
     /Milestone 15/i,
-    /1\.7 Matrix Stretch/i,
+    /1\.7 Eva Remote Codex Control/i,
     /public release notes/i,
     /M12 built[\s\S]+QA Lab/i,
     /lco qa-lab tool-coverage/i,

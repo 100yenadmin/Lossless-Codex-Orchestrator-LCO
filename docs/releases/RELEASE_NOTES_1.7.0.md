@@ -1,8 +1,7 @@
 # Release Notes 1.7.0
 
-`1.7.0` is the Eva remote control candidate for local Codex sessions. These
-notes describe the candidate; npm `latest` and GitHub Releases remain the
-publication authorities.
+`1.7.0` adds Eva remote-control support for local Codex sessions. npm `latest`
+and GitHub Release `v1.7.0` provide matching public artifacts.
 
 ## Highlights
 
@@ -16,7 +15,7 @@ publication authorities.
   state, and turn identity.
 - Opaque-target interrupt support on `lco_codex_interrupt_thread` while keeping
   the existing raw-ID compatibility form.
-- Hermes smoke registration coverage for the two new first-class tools.
+- Hermes smoke registration coverage for the sixteen required Eva tools.
 
 ## Upgrade
 
@@ -25,8 +24,11 @@ npm install -g lossless-codex-orchestrator@latest
 lco doctor
 ```
 
-Existing installations keep stdio behavior unless
-`LCO_CODEX_TRANSPORT=daemon` is set explicitly.
+Eva/Hermes deployments using remote control must set
+`LCO_CODEX_TRANSPORT=daemon`: LCO keeps a persistent
+WebSocket JSON-RPC connection over the Unix socket owned by an already-running
+Codex daemon and never silently falls back to stdio. OpenClaw loopback/stdio
+compatibility remains available as a separate user path.
 
 ## Validation
 
@@ -36,7 +38,6 @@ silence, structured MCP results, and package installation.
 
 ## Safety boundary
 
-- Stdio remains the public compatibility default.
 - Daemon mode never starts or restarts Codex, enables Remote Control, or falls
   back silently to stdio.
 - Raw transcript items may be transiently projected by Codex only to identify
@@ -46,8 +47,3 @@ silence, structured MCP results, and package installation.
   treated as the owner of Desktop turns, and generic GUI control stays off.
 - Every live delivery or interrupt still requires the matching unexpired
   dry-run approval audit.
-
-## Availability
-
-Until npm `latest` and GitHub Releases list 1.7.0, this file describes upcoming
-behavior rather than an available stable package.

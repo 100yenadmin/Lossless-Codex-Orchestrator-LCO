@@ -2,14 +2,15 @@
 
 ## Allowed 1.7.0 Stable Claim
 
-This wording becomes allowed only after npm, Git tag, and GitHub Release
-publication truth agree for the exact candidate. The current source version
-alone does not authorize it.
+The `1.7.0` wording is allowed because npm `latest`, Git tag `v1.7.0`, and the
+public GitHub Release agree on the published version. This publication claim
+does not include Eva runtime/customer acceptance or Trusted Publishing proof;
+both remain unproven and separately gated.
 
-Coordinate local Codex work through Hermes/MCP, with OpenClaw compatibility,
-using bounded recall and session diffs, audited review-then-drive dry-runs,
-approval-bound daemon/CLI task routing and delivery, Hermes Computer Use for
-Desktop-owned tasks, and read-only LCM prepared state; Claude targeting remains
+Coordinate local Codex work through Eva/Hermes MCP over an explicit persistent
+Unix-socket daemon route (no stdio fallback), with separate OpenClaw
+loopback/stdio compatibility, bounded recall, approval-bound opaque routing,
+Hermes Computer Use for Desktop tasks, and read-only LCM state; Claude remains
 dry-run only.
 
 This claim covers the stable local recall and control-plane paths with tests and smoke coverage: Codex indexing/search/describe/expand, session-diff cursors, review-then-drive dry-run packets with budgets, Claude Code read/recall and dry-run adapter states, prepared cards/inbox and summary leaves, read-only LCM peer DAG expansion and peer diagnostics, and approval-bound Codex scratch controls with post-action refresh proof where the release evidence records them.
@@ -40,7 +41,7 @@ post-action refresh working-app loop.
 
 Claude Code local JSONL read/recall through `lco index claude` and
 `claude_session:*` refs, plus explicit dry-run adapter validation, are in the
-1.6 line. Public docs must not imply Claude Code live-control parity, GUI
+1.7 line. Public docs must not imply Claude Code live-control parity, GUI
 mutation, cloud sync, or settings/session mutation until those adapter paths
 are separately proven.
 
@@ -51,17 +52,13 @@ across the orchestrator surfaces that share the same local index.
 ## Current Proof Boundary
 
 - Codex session import/search/recall and extraction are covered by fixture tests and local smoke.
-- Hermes is the primary supported agent path over stdio MCP only after the
-  exact candidate passes notification silence, required-tool registration,
-  object-valid structured results, existing-index default search, and latency
-  through `lco hermes smoke` plus `lco release hermes-readiness`.
-- A Hermes readiness pass is candidate evidence. It is not publication, an
-  active profile install, live Eva runtime safety, or native-adapter proof.
-- Daemon control is opt-in, local-only, and binds an expiring opaque target to
-  an already-running managed Codex daemon. It does not start or restart Codex,
-  enable Remote Control, expose raw identifiers, or own Desktop turns.
-- Desktop-owned tasks remain on Hermes Computer Use and require window,
-  composer, and direction verification in the named Eva runtime canary.
+- Eva/Hermes uses an explicit persistent Unix-socket daemon route with no stdio
+  fallback; stdio MCP smoke/readiness proves compatibility only, not Eva
+  runtime/customer proof.
+- The required Eva surface is sixteen tools. Daemon control is local-only,
+  opaque-targeted, and does not start/restart Codex or enable Remote Control.
+- OpenClaw loopback/stdio compatibility is separate. Desktop-owned tasks remain
+  on Hermes Computer Use with window, composer, and direction verification.
 - Live Codex control is approval-gated by a dry-run audit id; the public demo stops at dry-run unless the user explicitly approves a target thread.
 - CUA Driver is the preferred fallback backend, but no no-focus behavior is claimed without local proof.
 - Peekaboo is a secondary macOS fallback for permission diagnostics and guarded snapshots; desktop action remains dry-run-only.
@@ -106,31 +103,32 @@ blockers instead of allowing a working-app claim.
 
 ## npm dist-tag policy
 
-Install stable releases through the `latest` dist-tag, public betas through the
-`beta` dist-tag, and release candidates through `next`. The stable channel
-target for this package version is `1.7.0`; npm `latest` must move only after
-the separate stable-promotion gate proves the exact candidate. Keep beta and
-other prereleases on prerelease tags. Do not publish a fake stable package just
-to move a dist-tag.
+Install stable releases through `latest`, public betas through `beta`, and
+release candidates through `next`. The stable channel target for this package version is `1.7.0`;
+npm `latest` must move only after the separate
+stable-promotion gate proves the exact candidate. That move is complete for
+1.7.0; future versions still require their own exact-candidate gate. Keep beta
+and other prereleases on prerelease tags. Do not publish a fake stable package
+just to move a dist-tag.
 
 ## Release Checklist
 
 - `npm run check`
 - `npm run build`
 - `npm pack --dry-run`
-- `release_scorecard_source="/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-scorecard-source"`
+- `release_scorecard_source="$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-scorecard-source"`
 - `mkdir -p "$release_scorecard_source"`
 - `cp evals/scorecards/v1.0/*.json "$release_scorecard_source"`
 - Fill the copied scorecards with run-specific scores, evidence paths, known gaps, and proof boundaries before treating scorecard sweep as release evidence.
-- `lco scorecards sweep --claim-scope codex-read-search-expand-dry-run --scorecard-dir "$release_scorecard_source" --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-scorecards --strict`
-- `lco release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight --candidate-sha <release-candidate-sha> --strict`
-- `lco release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle --candidate-sha <release-candidate-sha>`
-- `lco release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha <release-candidate-sha> --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/codeql.json --strict`
-- Read/search/expand/dry-run scoped RC only: `lco release status --claim-scope codex-read-search-expand-dry-run --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha <release-candidate-sha> --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/codeql.json --strict`
+- `lco scorecards sweep --claim-scope codex-read-search-expand-dry-run --scorecard-dir "$release_scorecard_source" --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-scorecards" --strict`
+- `lco release preflight --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-preflight" --candidate-sha <release-candidate-sha> --strict`
+- `lco release bundle --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-bundle" --candidate-sha <release-candidate-sha>`
+- `lco release status --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status" --candidate-sha <release-candidate-sha> --approved-live-control-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/approved-live-control-smoke.json" --npm-publish-approval-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/npm-approval.json" --github-release-approval-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/github-release-approval.json" --github-ci-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/github-ci.json" --codeql-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/codeql.json" --strict`
+- Read/search/expand/dry-run scoped RC only: `lco release status --claim-scope codex-read-search-expand-dry-run --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status" --candidate-sha <release-candidate-sha> --npm-publish-approval-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/npm-approval.json" --github-release-approval-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/github-release-approval.json" --github-ci-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/github-ci.json" --codeql-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/codeql.json" --strict`
 - GitHub CI green for the release PR
 - GitHub CI and CodeQL proof markers match the release candidate SHA and have
   empty `warnings` arrays
-- Demo evidence under `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/`
+- Demo evidence under `$LCO_EVIDENCE_ROOT/YYYY-MM-DD/`
 - Generate release gate reports from inside the dated evidence root with a relative --evidence-dir
   value so the artifact manifests remain relocatable.
 - Use a synthetic corpus or committed retrieval goldens for demo output;
@@ -172,6 +170,6 @@ GitHub Release creation. A single-surface maintenance publication needs an
 explicit planned-operation contract change before `lco release status --strict`
 can be used as the final ready gate.
 
-Desktop GUI mutation is not required for a normal beta publication. If a release plan includes GUI mutation, `lco release status --strict` must be run with `--runtime-proof-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/runtime-proof --desktop-gui-required --desktop-gui-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/desktop-gui-approval.json`; the runtime proof directory must include `desktop-collaboration-action-bound-v1-1.runtime-proof.json` with an `action_hash` matching the approved desktop action. The `loo_release_operation_approval` proof marker must include `operation: "desktop_gui_mutation"`, `approved: true`, a non-empty `approvalRef`, `desktopBackend`, `targetApp`, `targetWindow`, `action`, `actionHash`, `focusBeforeApplication`, `focusAfterApplication`, `focusChanged: false`, `focusProof`, `rawScreenshotIncluded: false`, and `rawSecretIncluded: false`. `actionHash` must match the exact SHA-256 hash emitted by `lco desktop proof-report` for `JSON.stringify({ desktopBackend, targetApp, targetWindow, action })`; a merely well-formed 64-character hash is not enough, and the runtime marker `action_hash` must match it. When `lco desktop proof-report --strict` validates a public-safe backend observation, it emits both the approval fixture and the desktop collaboration runtime proof marker; invalid observations must not emit that runtime marker.
+Desktop GUI mutation is not required for a normal beta publication. If a release plan includes GUI mutation, `lco release status --strict` must be run with `--runtime-proof-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/runtime-proof" --desktop-gui-required --desktop-gui-approval-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/desktop-gui-approval.json"`; the runtime proof directory must include `desktop-collaboration-action-bound-v1-1.runtime-proof.json` with an `action_hash` matching the approved desktop action. The `loo_release_operation_approval` proof marker must include `operation: "desktop_gui_mutation"`, `approved: true`, a non-empty `approvalRef`, `desktopBackend`, `targetApp`, `targetWindow`, `action`, `actionHash`, `focusBeforeApplication`, `focusAfterApplication`, `focusChanged: false`, `focusProof`, `rawScreenshotIncluded: false`, and `rawSecretIncluded: false`. `actionHash` must match the exact SHA-256 hash emitted by `lco desktop proof-report` for `JSON.stringify({ desktopBackend, targetApp, targetWindow, action })`; a merely well-formed 64-character hash is not enough, and the runtime marker `action_hash` must match it. When `lco desktop proof-report --strict` validates a public-safe backend observation, it emits both the approval fixture and the desktop collaboration runtime proof marker; invalid observations must not emit that runtime marker.
 Diagnostic-only focus proofs such as `status_probe_only_no_action` and
 `not_measured` do not satisfy desktop GUI mutation approval.

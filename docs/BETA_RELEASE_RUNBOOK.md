@@ -5,6 +5,11 @@ Codex Orchestrator. It keeps feature integration, release candidates, and
 actual publication separate so a merged PR does not become an accidental release
 claim.
 
+The current shipped release is `1.7.0`: npm `latest`, tag `v1.7.0`, and the
+public GitHub Release agree on the artifact. Eva runtime/customer acceptance and
+Trusted Publishing proof for 1.7.0 remain unproven and are not cleared by this
+runbook or by documentation-only evidence.
+
 ## Release Truth
 
 - GitHub issues are the implementation truth.
@@ -16,7 +21,9 @@ claim.
 - Rollbacks, dist-tag corrections, and dual-name package repairs are handled in
   the operator-facing [Release Rollback Runbook](RELEASE_ROLLBACK.md)
   (`docs/RELEASE_ROLLBACK.md`).
-- Evidence path: `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/<release-slug>/`.
+- Evidence path: `$LCO_EVIDENCE_ROOT/YYYY-MM-DD/<release-slug>/`. Set
+  `LCO_EVIDENCE_ROOT` to a local writable evidence directory before running a
+  gate; do not assume a removable volume or fixed machine path.
 - For gate commands that create sibling report directories, create the dated
   release evidence root first, `cd` into that root, and pass a relative --evidence-dir
   value from inside the evidence root. This keeps generated manifests
@@ -48,7 +55,7 @@ Recommended naming:
 - Branch: `release/0.1.0-beta.1`
 - Tag: `v0.1.0-beta.1`
 - Evidence slug:
-  `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-0.1.0-beta.1-rc`
+  `$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-0.1.0-beta.1-rc`
 
 ## Working App Proof Lane
 
@@ -89,7 +96,7 @@ inspect the release docs, workflows, skills, and runbooks together.
 The scan must inspect README.md, `VISION.md`, release notes, claim audit, GitHub workflows, and CLI release gates together, plus package scripts, repo guidance, local release skills, and this runbook, so the release story cannot pass by checking only one file or one command. If the scan finds stale or incomplete release instructions, update this runbook in the same PR before treating the release candidate as ready.
 
 Record findings under:
-`/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/<release-slug>/release-context-freshness/`.
+`$LCO_EVIDENCE_ROOT/YYYY-MM-DD/<release-slug>/release-context-freshness/`.
 
 The high-context scan must cover these named scorecard lenses:
 
@@ -108,7 +115,7 @@ or CI-backed branch:
 
 ```bash
 release_candidate_sha="$(git rev-parse HEAD)"
-release_scorecard_source="/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-scorecard-source"
+release_scorecard_source="$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-scorecard-source"
 mkdir -p "$release_scorecard_source"
 cp evals/scorecards/v1.0/*.json "$release_scorecard_source"
 # Fill the copied scorecards with run-specific scores, evidence paths, known gaps,
@@ -118,12 +125,12 @@ npm run check
 npm pack --dry-run
 # Run only on an approved sacrificial Codex target; the emitted proof is bound
 # to this exact release candidate.
-node ./dist/packages/cli/src/index.js codex live-control-smoke --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha "$release_candidate_sha"
-node ./dist/packages/cli/src/index.js scorecards sweep --claim-scope codex-live-control --scorecard-dir "$release_scorecard_source" --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-scorecards --strict
-node ./dist/packages/cli/src/index.js release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight --candidate-sha "$release_candidate_sha" --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --strict
-node ./dist/packages/cli/src/index.js release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle --candidate-sha "$release_candidate_sha" --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --strict
-node ./dist/packages/cli/src/index.js release demo-status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo --candidate-sha "$release_candidate_sha" --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --strict
-node ./dist/packages/cli/src/index.js release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha "$release_candidate_sha" --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/codeql.json --strict
+node ./dist/packages/cli/src/index.js codex live-control-smoke --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status" --candidate-sha "$release_candidate_sha"
+node ./dist/packages/cli/src/index.js scorecards sweep --claim-scope codex-live-control --scorecard-dir "$release_scorecard_source" --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-scorecards" --strict
+node ./dist/packages/cli/src/index.js release preflight --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-preflight" --candidate-sha "$release_candidate_sha" --approved-live-control-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/approved-live-control-smoke.json" --strict
+node ./dist/packages/cli/src/index.js release bundle --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-bundle" --candidate-sha "$release_candidate_sha" --approved-live-control-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/approved-live-control-smoke.json" --strict
+node ./dist/packages/cli/src/index.js release demo-status --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/demo" --candidate-sha "$release_candidate_sha" --approved-live-control-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/approved-live-control-smoke.json" --strict
+node ./dist/packages/cli/src/index.js release status --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status" --candidate-sha "$release_candidate_sha" --approved-live-control-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/approved-live-control-smoke.json" --npm-publish-approval-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/npm-approval.json" --github-release-approval-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/github-release-approval.json" --github-ci-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/github-ci.json" --codeql-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/codeql.json" --strict
 ```
 
 If `lco index bench` is included in a release evidence packet, label it as an
@@ -135,11 +142,11 @@ only read/search/describe/expand plus dry-run control, use this scope on every
 release gate instead of passing live-control evidence:
 
 ```bash
-node ./dist/packages/cli/src/index.js scorecards sweep --claim-scope codex-read-search-expand-dry-run --scorecard-dir "$release_scorecard_source" --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-scorecards --strict
-node ./dist/packages/cli/src/index.js release preflight --claim-scope codex-read-search-expand-dry-run --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight --strict
-node ./dist/packages/cli/src/index.js release bundle --claim-scope codex-read-search-expand-dry-run --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle --strict
-node ./dist/packages/cli/src/index.js release demo-status --claim-scope codex-read-search-expand-dry-run --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo --strict
-node ./dist/packages/cli/src/index.js release status --claim-scope codex-read-search-expand-dry-run --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha "$release_candidate_sha" --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/codeql.json --strict
+node ./dist/packages/cli/src/index.js scorecards sweep --claim-scope codex-read-search-expand-dry-run --scorecard-dir "$release_scorecard_source" --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-scorecards" --strict
+node ./dist/packages/cli/src/index.js release preflight --claim-scope codex-read-search-expand-dry-run --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-preflight" --strict
+node ./dist/packages/cli/src/index.js release bundle --claim-scope codex-read-search-expand-dry-run --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-bundle" --strict
+node ./dist/packages/cli/src/index.js release demo-status --claim-scope codex-read-search-expand-dry-run --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/demo" --strict
+node ./dist/packages/cli/src/index.js release status --claim-scope codex-read-search-expand-dry-run --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status" --candidate-sha "$release_candidate_sha" --npm-publish-approval-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/npm-approval.json" --github-release-approval-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/github-release-approval.json" --github-ci-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/github-ci.json" --codeql-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/codeql.json" --strict
 ```
 
 Those reports must include `claimScope:
@@ -153,12 +160,12 @@ If the release candidate claims the Milestone 7 working-app path, use
 `--runtime-proof-dir` used by the v1.1 scenario sweep:
 
 ```bash
-node ./dist/packages/cli/src/index.js eval scenarios --scenario-dir evals/scenarios/v1.1 --runtime-proof-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/runtime-proof --scenario-id openclaw-gateway-live-codex-v1-1 --scenario-id post-action-refresh-reasoning-v1-1 --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/runtime-scenarios --strict
-node ./dist/packages/cli/src/index.js scorecards sweep --claim-scope codex-working-app-proof --scorecard-dir "$release_scorecard_source" --runtime-proof-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/runtime-proof --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-scorecards --strict
-node ./dist/packages/cli/src/index.js release preflight --claim-scope codex-working-app-proof --runtime-proof-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/runtime-proof --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight --candidate-sha "$release_candidate_sha" --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --strict
-node ./dist/packages/cli/src/index.js release bundle --claim-scope codex-working-app-proof --runtime-proof-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/runtime-proof --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle --candidate-sha "$release_candidate_sha" --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --strict
-node ./dist/packages/cli/src/index.js release demo-status --claim-scope codex-working-app-proof --runtime-proof-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/runtime-proof --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo --candidate-sha "$release_candidate_sha" --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --strict
-node ./dist/packages/cli/src/index.js release status --claim-scope codex-working-app-proof --runtime-proof-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/runtime-proof --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha "$release_candidate_sha" --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/codeql.json --strict
+node ./dist/packages/cli/src/index.js eval scenarios --scenario-dir evals/scenarios/v1.1 --runtime-proof-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/runtime-proof" --scenario-id openclaw-gateway-live-codex-v1-1 --scenario-id post-action-refresh-reasoning-v1-1 --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/runtime-scenarios" --strict
+node ./dist/packages/cli/src/index.js scorecards sweep --claim-scope codex-working-app-proof --scorecard-dir "$release_scorecard_source" --runtime-proof-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/runtime-proof" --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-scorecards" --strict
+node ./dist/packages/cli/src/index.js release preflight --claim-scope codex-working-app-proof --runtime-proof-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/runtime-proof" --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-preflight" --candidate-sha "$release_candidate_sha" --approved-live-control-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/approved-live-control-smoke.json" --strict
+node ./dist/packages/cli/src/index.js release bundle --claim-scope codex-working-app-proof --runtime-proof-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/runtime-proof" --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-bundle" --candidate-sha "$release_candidate_sha" --approved-live-control-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/approved-live-control-smoke.json" --strict
+node ./dist/packages/cli/src/index.js release demo-status --claim-scope codex-working-app-proof --runtime-proof-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/runtime-proof" --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/demo" --candidate-sha "$release_candidate_sha" --approved-live-control-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/approved-live-control-smoke.json" --strict
+node ./dist/packages/cli/src/index.js release status --claim-scope codex-working-app-proof --runtime-proof-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/runtime-proof" --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status" --candidate-sha "$release_candidate_sha" --approved-live-control-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/approved-live-control-smoke.json" --npm-publish-approval-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/npm-approval.json" --github-release-approval-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/github-release-approval.json" --github-ci-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/github-ci.json" --codeql-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/codeql.json" --strict
 ```
 
 That scope requires the scorecard sweep and release gates to see
@@ -221,7 +228,7 @@ that text in `warnings`; `lco release status --strict` must remain blocked until
 the warning is removed.
 
 If desktop GUI mutation is part of the release plan, rerun release status with
-`--runtime-proof-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/runtime-proof --desktop-gui-required --desktop-gui-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/desktop-gui-approval.json`.
+`--runtime-proof-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/runtime-proof" --desktop-gui-required --desktop-gui-approval-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-status/desktop-gui-approval.json"`.
 That proof marker must include `operation: "desktop_gui_mutation"`,
 `approved: true`, a non-empty `approvalRef`, `desktopBackend`, `targetApp`,
 `targetWindow`, `action`, `actionHash`, `approvalNonce`, `issuedAt`,
@@ -252,9 +259,11 @@ public-safe, action-bound, and no-focus.
 
 ## Hermes MCP Candidate Smoke
 
-Hermes over stdio MCP is the primary supported agent path. Before OpenClaw
-compatibility smoke, install the packed candidate in an isolated prefix and
-run:
+The isolated stdio MCP smoke is compatibility evidence only. Eva/Hermes uses
+explicit `LCO_CODEX_TRANSPORT=daemon` with a persistent Unix-socket connection
+to an already-running Codex-owned daemon and no fallback to stdio.
+Before OpenClaw compatibility smoke, install the packed candidate in an
+isolated prefix and run:
 
 ```bash
 lco qa-lab cli-mcp-smoke --evidence-dir <package-smoke-dir> --package-version <version> --candidate-sha <sha> --cli-bin <candidate-prefix>/node_modules/.bin/lco --mcp-bin <candidate-prefix>/node_modules/.bin/lco-mcp-server --strict
@@ -263,14 +272,15 @@ lco release hermes-readiness --evidence-dir <hermes-readiness-dir> --package-ver
 ```
 
 The isolated Hermes client canary must use the candidate MCP binary and a
-protected copy of the local LCO database. It records only tool counts, schema
+protected copy of the local LCO database. It checks sixteen required Eva tools
+and records only tool counts, schema
 checks, blocker codes, and aggregate latency. Remove the temporary database
 copy after the run; never place queries, thread IDs, raw results, configuration,
 credentials, or transcripts in shared evidence.
 
-This is PR-readiness evidence for the named SHA. It is not merge, publication,
-an active Hermes profile install, live Eva runtime proof, or native-adapter
-proof.
+This is PR-readiness compatibility evidence for the named SHA. It is not merge,
+publication, an active Hermes profile install, Eva runtime/customer proof, or
+Trusted Publishing proof.
 
 ## OpenClaw Install And Tool Declaration Smoke
 
@@ -278,7 +288,7 @@ The local OpenClaw gateway is a maintained compatibility user. Run
 metadata-only install/tool-declaration coverage from the candidate checkout:
 
 ```bash
-node ./dist/packages/cli/src/index.js openclaw dogfood --profile lco-dogfood --install-source . --link --required-tool lco_doctor --required-tool lco_search_sessions --required-tool lco_describe_ref --required-tool lco_expand_session --required-tool lco_expand_query --required-tool lco_codex_extract --required-tool lco_operating_picture --required-tool lco_codex_control_dry_run --evidence-path /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/openclaw-dogfood/plugin-load.json --strict
+node ./dist/packages/cli/src/index.js openclaw dogfood --profile lco-dogfood --install-source . --link --required-tool lco_doctor --required-tool lco_search_sessions --required-tool lco_describe_ref --required-tool lco_expand_session --required-tool lco_expand_query --required-tool lco_codex_extract --required-tool lco_operating_picture --required-tool lco_codex_control_dry_run --evidence-path "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/openclaw-dogfood/plugin-load.json" --strict
 ```
 
 Use an isolated profile such as `lco-dogfood` for linked beta proof. Reusing the
@@ -314,7 +324,7 @@ without mutating a real Codex thread.
 Use the narrow gateway tool-call smoke for that proof:
 
 ```bash
-node ./dist/packages/cli/src/index.js openclaw tool-smoke --profile lco-dogfood --session-key agent:main:lco-dogfood --required-tool lco_doctor --required-tool lco_search_sessions --required-tool lco_describe_ref --required-tool lco_expand_session --required-tool lco_expand_query --required-tool lco_codex_extract --required-tool lco_operating_picture --required-tool lco_codex_control_dry_run --evidence-path /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/openclaw-dogfood/tool-smoke.json --strict
+node ./dist/packages/cli/src/index.js openclaw tool-smoke --profile lco-dogfood --session-key agent:main:lco-dogfood --required-tool lco_doctor --required-tool lco_search_sessions --required-tool lco_describe_ref --required-tool lco_expand_session --required-tool lco_expand_query --required-tool lco_codex_extract --required-tool lco_operating_picture --required-tool lco_codex_control_dry_run --evidence-path "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/openclaw-dogfood/tool-smoke.json" --strict
 ```
 
 This command calls OpenClaw Gateway `tools.catalog` and `tools.invoke`, then
@@ -375,13 +385,13 @@ built-artifact form is:
 
 ```bash
 node ./dist/packages/cli/src/index.js release general-readiness \
-  --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/general-release-readiness \
-  --fresh-npm-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/fresh-npm/published-package-smoke.json \
-  --agent-dogfood-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/agent-dogfood/openclaw-tool-smoke.json \
+  --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/general-release-readiness" \
+  --fresh-npm-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/fresh-npm/published-package-smoke.json" \
+  --agent-dogfood-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/agent-dogfood/openclaw-tool-smoke.json" \
   --strict
 
 node ./dist/packages/cli/src/index.js release ga-smoke \
-  --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-ga-smoke \
+  --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-ga-smoke" \
   --package-version <version> \
   --candidate-sha "$release_candidate_sha" \
   --strict
@@ -564,11 +574,11 @@ Only after the approval gates are satisfied:
 
    ```bash
    node ./dist/packages/cli/src/index.js release finalization-status \
-     --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-finalization \
+     --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-finalization" \
      --candidate-sha "$release_candidate_sha" \
-     --npm-publish-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-finalization/npm-publish.json \
-     --git-tag-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-finalization/git-tag.json \
-     --github-release-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-finalization/github-release.json \
+     --npm-publish-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-finalization/npm-publish.json" \
+     --git-tag-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-finalization/git-tag.json" \
+     --github-release-evidence "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-finalization/github-release.json" \
      --expected-dist-tag beta \
      --expected-github-prerelease true \
      --strict

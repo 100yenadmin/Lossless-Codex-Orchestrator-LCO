@@ -1,8 +1,12 @@
 # Control Plane Threat Model
 
-This is an operator-facing risk model for the LCO 1.6 control-plane release
+This is an operator-facing risk model for the LCO 1.7 control-plane release
 train. It belongs in release checklists, QA packets, and implementation issues,
 not in public release notes.
+
+The `1.7.0` artifact is publicly released through npm `latest` and GitHub
+Release `v1.7.0`. This is publication truth only: Eva runtime/customer
+acceptance and Trusted Publishing proof for 1.7.0 remain unproven.
 
 The control-plane layer lets an orchestrator ask LCO to prepare review plans,
 dry-run control packets, and approved scratch-session actions across local
@@ -36,7 +40,7 @@ Outside this model:
 | --- | --- | --- |
 | Gateway token | Authorizes local OpenClaw gateway tool invocation. | Keep local, env-ref preferred, never paste into evidence. |
 | Approval audit id | Binds a live action to a dry-run packet and target preconditions. | Required for live control; short-lived and target-specific. |
-| LCO SQLite DB | Stores indexed sessions, prepared cards, summary leaves, and audit metadata. | Advisory derived cache; do not treat as source authority. |
+| LCO SQLite/FTS5 DB | Stores indexed sessions, FTS search rows, prepared cards, summary leaves, and audit metadata. | Advisory derived cache; do not treat as source authority. |
 | Source refs | Let an agent expand bounded evidence without raw transcript scans. | Opaque refs only in public outputs. |
 | Hook packets | Record closeout/state-prep/compaction markers. | Derived-cache writes only; hash sensitive paths. |
 | npm and release tags | Public distribution truth. | Dual-package publish must match tag and GitHub Release SHA. |
@@ -45,10 +49,17 @@ Outside this model:
 
 ### Local binding
 
-LCO defaults to local files, local SQLite, local MCP stdio, and loopback gateway
-surfaces. A target adapter must not broaden that boundary by opening remote
-control, remote pairing, or external writes unless a separate release lane adds
-that behavior with explicit tests and release gates.
+LCO uses local files, local SQLite/FTS5, policy-gated adapters, and bounded MCP
+surfaces. Eva/Hermes uses `LCO_CODEX_TRANSPORT=daemon` for a persistent
+WebSocket JSON-RPC connection over the Codex-owned Unix socket, with no stdio
+fallback. OpenClaw loopback/stdio compatibility is separate; adapters must not
+open remote control, pairing, or external writes without explicit gates.
+
+### MCP and target routing
+
+The MCP server accepts only `initialize`, `tools/list`, and `tools/call`.
+Eva route/deliver/interrupt exposes opaque refs and revalidates ownership,
+state, turn, approval, and exact Desktop target/composer readback before action.
 
 ### Token scope
 
@@ -116,8 +127,7 @@ interrupt scratch turns only when the release issue asks for those rows.
 
 ## Operator Checks
 
-Before public 1.6 release messaging leans on agent-to-agent driving, release
-captains should verify:
+Before relying on the public 1.7.0 release, release captains should verify:
 
 - TargetAdapter policies name their target method families explicitly.
 - No control method can run live without a matching dry-run approval audit id.

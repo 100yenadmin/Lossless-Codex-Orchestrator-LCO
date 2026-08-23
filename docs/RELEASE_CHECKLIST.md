@@ -9,19 +9,19 @@ Run the machine-readable gate:
 
 ```bash
 lco release general-readiness \
-  --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/general-release-readiness \
+  --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/general-release-readiness" \
   --fresh-npm-evidence published-package-smoke.json \
   --agent-dogfood-evidence openclaw-tool-smoke.json \
   --strict
 
 lco release ga-smoke \
-  --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-ga-smoke \
+  --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-ga-smoke" \
   --package-version <version> \
   --candidate-sha <release-candidate-sha> \
   --strict
 
 lco release hermes-readiness \
-  --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/hermes-readiness \
+  --evidence-dir "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/hermes-readiness" \
   --package-version <version> \
   --candidate-sha <release-candidate-sha> \
   --hermes-smoke <hermes-smoke.json> \
