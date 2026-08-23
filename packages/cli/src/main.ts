@@ -2185,7 +2185,7 @@ function printHermesSmokeHelp(): void {
     "Usage:",
     "  loo hermes smoke --evidence-dir path --package-version version --candidate-sha sha [--cli-bin path] [--mcp-bin path] [--find-latency-threshold-ms ms] [--timeout-ms ms] [--now iso] [--strict]",
     "",
-    "Runs isolated local MCP probes for candidate version identity, silent notifications, object-valid structured results, default no-index find behavior at or below 1000 ms by default, and the fourteen required Eva tools.",
+    "Runs isolated local MCP probes for candidate version identity, silent notifications, object-valid structured results, default no-index find behavior at or below 1000 ms by default, and the sixteen required Eva tools.",
     "Use --find-latency-threshold-ms to set a stricter environment-specific single-call ceiling; production-scale p95 evidence remains a separate persistent-process canary.",
     "",
     "Strict mode:",

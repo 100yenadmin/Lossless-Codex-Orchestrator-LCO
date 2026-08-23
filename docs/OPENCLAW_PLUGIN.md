@@ -48,7 +48,7 @@ releases.
 For local candidate dogfood, use an isolated profile:
 
 ```bash
-lco openclaw dogfood --profile lco-dogfood --install-source . --link --evidence-path /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-44-local-openclaw-gateway-dogfood/plugin-load.json --strict
+lco openclaw dogfood --profile lco-dogfood --install-source . --link --evidence-path "$LCO_EVIDENCE_ROOT/YYYY-MM-DD/issue-44-local-openclaw-gateway-dogfood/plugin-load.json" --strict
 ```
 
 This command wraps `openclaw plugins list --json` plus runtime inspection into a public-safe status report. It records only loaded/enabled state, required `lco_*` tool coverage, blocker codes, and install/list exit status. It does not write raw OpenClaw plugin JSON, raw Codex transcripts, expanded text, local SQLite contents, screenshots, tokens, or credentials.
