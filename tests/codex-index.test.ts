@@ -169,6 +169,63 @@ test("indexes Codex sessions with plans, finals, touched files, and search text"
   }
 });
 
+test("Codex child aggregation uses per-thread indexes without a redundant touched-file index", () => {
+  const db = createDatabase(":memory:");
+  try {
+    const productionAggregationPlan = db.prepare(`
+      EXPLAIN QUERY PLAN
+      SELECT
+        s.rowid AS sessionRowid,
+        COALESCE((
+          SELECT group_concat(text, ' ')
+          FROM (SELECT text FROM codex_plans WHERE thread_id = s.thread_id ORDER BY ordinal)
+        ), '') AS plans,
+        COALESCE((
+          SELECT group_concat(path, ' ')
+          FROM (SELECT path FROM codex_touched_files WHERE thread_id = s.thread_id ORDER BY path)
+        ), '') AS touchedFiles,
+        COALESCE((
+          SELECT group_concat(text, ' ')
+          FROM (
+            SELECT trim(tool_name || ' ' || arguments_text) AS text
+            FROM codex_tool_calls
+            WHERE thread_id = s.thread_id
+            ORDER BY call_id
+          )
+        ), '') AS toolMeta
+      FROM codex_sessions s
+    `).all() as Array<{ detail: string }>;
+
+    const touchedFileIndexes = db.prepare("PRAGMA index_list(codex_touched_files)").all() as Array<{ name: string; origin: string }>;
+    const indexColumns = (name: string): string[] => (
+      db.prepare(`PRAGMA index_info(${JSON.stringify(name)})`).all() as Array<{ name: string }>
+    ).map((row) => row.name);
+    const hasColumns = (name: string, expected: string[]): boolean => (
+      JSON.stringify(indexColumns(name)) === JSON.stringify(expected)
+    );
+    const touchedFileUniqueIndex = touchedFileIndexes.find((row) => (
+      row.origin === "u"
+      && hasColumns(row.name, ["thread_id", "path", "source_kind"])
+    ));
+    assert.ok(touchedFileUniqueIndex);
+    const redundantTouchedFileIndex = touchedFileIndexes.find((row) => (
+      row.origin === "c"
+      && (
+        hasColumns(row.name, ["thread_id", "path"])
+        || hasColumns(row.name, ["thread_id", "path", "source_kind"])
+      )
+    ));
+
+    assert.equal(redundantTouchedFileIndex, undefined);
+    assert.equal(productionAggregationPlan.some((row) => row.detail.includes("codex_plans_thread_ordinal_idx")), true);
+    assert.equal(productionAggregationPlan.some((row) => row.detail.includes("codex_tool_calls_thread_call_idx")), true);
+    assert.equal(productionAggregationPlan.some((row) => row.detail.includes(touchedFileUniqueIndex.name)), true);
+    assert.equal(productionAggregationPlan.some((row) => row.detail.includes("TEMP B-TREE")), false);
+  } finally {
+    db.close();
+  }
+});
+
 test("compacted and tool output text cannot overwrite assistant final messages", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-codex-finals-"));
   const sessions = join(root, "sessions");

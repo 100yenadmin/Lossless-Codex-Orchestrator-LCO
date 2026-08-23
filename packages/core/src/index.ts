@@ -3282,6 +3282,8 @@ export function migrate(db: LooDatabase, options: { maintenance?: DatabaseMainte
       ordinal INTEGER NOT NULL
     );
 
+    CREATE INDEX IF NOT EXISTS codex_plans_thread_ordinal_idx ON codex_plans(thread_id, ordinal);
+
     CREATE TABLE IF NOT EXISTS codex_touched_files (
       touched_file_id TEXT PRIMARY KEY,
       thread_id TEXT NOT NULL REFERENCES codex_sessions(thread_id) ON DELETE CASCADE,
@@ -3297,6 +3299,8 @@ export function migrate(db: LooDatabase, options: { maintenance?: DatabaseMainte
       arguments_text TEXT NOT NULL,
       reason_code TEXT
     );
+
+    CREATE INDEX IF NOT EXISTS codex_tool_calls_thread_call_idx ON codex_tool_calls(thread_id, call_id);
 
     CREATE TABLE IF NOT EXISTS codex_session_metadata (
       thread_id TEXT PRIMARY KEY REFERENCES codex_sessions(thread_id) ON DELETE CASCADE,
@@ -3410,6 +3414,11 @@ export function migrate(db: LooDatabase, options: { maintenance?: DatabaseMainte
         '2026-07-11-source-integrity-generation',
         datetime('now'),
         'Track destructive source rewrites separately from monotonic source additions'
+      ),
+      (
+        '2026-07-31-codex-child-order-indexes',
+        datetime('now'),
+        'Additive Codex child aggregation order indexes'
       );
 
     CREATE TABLE IF NOT EXISTS prepared_source_events (

@@ -109,6 +109,31 @@ test("prepared-state migration adds additive shadow tables to an existing 1.1-st
     ]) {
       assert.equal(tables.has(table), true, `${table} exists`);
     }
+    const childIndexes = db.prepare(`
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'index'
+        AND name IN ('codex_plans_thread_ordinal_idx', 'codex_tool_calls_thread_call_idx')
+      ORDER BY name
+    `).all() as Array<{ name: string }>;
+    assert.deepEqual(childIndexes.map((row) => row.name), [
+      "codex_plans_thread_ordinal_idx",
+      "codex_tool_calls_thread_call_idx"
+    ]);
+    const touchedFileIndexes = db.prepare("PRAGMA index_list(codex_touched_files)").all() as Array<{ name: string; origin: string }>;
+    const indexColumns = (name: string): string[] => (
+      db!.prepare(`PRAGMA index_info(${JSON.stringify(name)})`).all() as Array<{ name: string }>
+    ).map((row) => row.name);
+    assert.equal(touchedFileIndexes.some((row) => (
+      row.origin === "u"
+      && JSON.stringify(indexColumns(row.name)) === JSON.stringify(["thread_id", "path", "source_kind"])
+    )), true);
+    assert.equal(touchedFileIndexes.some((row) => {
+      if (row.origin !== "c") return false;
+      const columns = JSON.stringify(indexColumns(row.name));
+      return columns === JSON.stringify(["thread_id", "path"])
+        || columns === JSON.stringify(["thread_id", "path", "source_kind"]);
+    }), false);
     const expectedMigrationOrder = [
       "2026-07-03-prepared-source-ranges",
       "2026-07-03-summary-leaves",
@@ -123,6 +148,7 @@ test("prepared-state migration adds additive shadow tables to an existing 1.1-st
       "2026-07-06-retrieval-telemetry",
       "2026-07-11-session-diff-cursor-indexes",
       "2026-07-11-source-integrity-generation",
+      "2026-07-31-codex-child-order-indexes",
       "2026-07-11-session-diff-persisted-key",
       "2026-07-06-retrieval-telemetry-session-key",
       "2026-07-06-codex-search-fts"
