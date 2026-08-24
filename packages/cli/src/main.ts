@@ -1366,7 +1366,7 @@ function mainUsageText(): string {
     "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--qa-lab-run path] [--tool-coverage path] [--live-control-matrix path] [--judge-review path] [--adversarial-review path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
     "  loo release demo-status --evidence-dir path [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]",
     "  loo qa-lab cli-mcp-smoke --evidence-dir path --package-version version [--candidate-sha sha] [--cli-bin path] [--mcp-bin path] [--required-tool name] [--tool-call name] [--timeout-ms ms] [--now iso] [--strict]",
-    "  loo qa-lab eva-idle-route --evidence-dir path --mcp-bin path --package-tarball path --package-version 1.7.0 --candidate-sha sha [--execute] [--strict]",
+    "  loo qa-lab eva-idle-route --evidence-dir path --mcp-bin path [--package-tarball path] --package-version 1.7.0 --candidate-sha sha [--execute] [--strict]",
     "  loo hermes smoke --evidence-dir path --package-version version --candidate-sha sha [--cli-bin path] [--mcp-bin path] [--find-latency-threshold-ms ms] [--timeout-ms ms] [--now iso] [--strict]",
     "  loo qa-lab run --suite ga --artifact published|candidate --evidence-dir path --package-version version --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--tool-coverage path] [--workflow-run path] [--cli-mcp-smoke path] [--desktop-contract path] [--live-control-matrix path] [--scenario-sweep path] [--scorecard-sweep path] [--privacy-scan path] [--now iso] [--strict]",
     "  loo qa-lab tool-coverage --evidence-dir path [--tool-smoke-report path] [--dogfood-report path] [--published-smoke path] [--manifest path] [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--coverage-policy full|facade] [--now iso] [--strict]",
@@ -2327,12 +2327,13 @@ function printQaLabCliMcpSmokeHelp(): void {
 function printQaLabEvaIdleRouteHelp(): void {
   console.log([
     "Usage:",
-    "  lco qa-lab eva-idle-route --evidence-dir path --mcp-bin path --package-tarball path --package-version 1.7.0 --candidate-sha sha [--execute] [--strict]",
+    "  lco qa-lab eva-idle-route --evidence-dir path --mcp-bin path [--package-tarball path] --package-version 1.7.0 --candidate-sha sha [--execute] [--strict]",
     "",
     "Runs the operator-only Eva idle-route ladder against one exact package-owned MCP binary.",
     "",
     "Stages:",
     "  default             non-executing package/MCP preflight only",
+    "  --package-tarball path  optional in default mode; required with --execute and verified before MCP spawn",
     "  --execute           one disposable read-only/no-network task and exactly one idle send",
     "  --strict            exit non-zero when an execute ladder stage blocks",
     "",

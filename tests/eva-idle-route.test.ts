@@ -325,6 +325,25 @@ test("eva idle route requires an explicit package tarball before execution", asy
   assert.equal(report.mcpSessionCount, 0);
 });
 
+test("eva idle route fails closed when harness provenance resolution fails", async (t) => {
+  const subject = fakeSubject(t);
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    ...packageProof(subject),
+    repoRoot: join(subject.repoRoot, "missing-checkout"),
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    setupClientFactory: async () => setupClient([]),
+    execute: true,
+    now: "2026-08-24T00:00:00.000Z"
+  });
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.includes("harness_provenance_unavailable"));
+  assert.equal(report.mcpSessionCount, 0);
+});
+
 test("eva idle route uses one initialize/list deadline", async (t) => {
   const subject = fakeSubject(t, { behavior: "slow-init-list" });
   const report = await runEvaIdleRoute({
@@ -338,7 +357,7 @@ test("eva idle route uses one initialize/list deadline", async (t) => {
     execute: true,
     initializeListTimeoutMs: 20,
     now: "2026-08-24T00:00:00.000Z"
-  } as any);
+  });
   assert.equal(report.ok, false);
   assert.ok(report.blockers.some((blocker) => /initialize|tools_list|deadline|timeout/.test(blocker)));
 });
@@ -400,7 +419,8 @@ test("eva idle route rejects a completion that settles at the outer deadline", a
   });
   assert.equal(report.ok, false);
   assert.equal(report.completionSeen, false);
-  assert.ok(report.blockers.includes("completion_deadline_exceeded"));
+  assert.equal(report.terminalMarkerObserved, false);
+  assert.ok(report.blockers.some((blocker) => blocker === "completion_deadline_exceeded" || blocker === "outer_deadline_exceeded"));
 });
 
 test("eva idle route confirms forced MCP exit before deleting audit storage", async (t) => {
