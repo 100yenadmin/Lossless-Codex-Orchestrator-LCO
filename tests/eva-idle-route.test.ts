@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   containsTerminalAssistantMarker,
   EVA_IDLE_ROUTE_MESSAGE,
@@ -15,8 +16,8 @@ import {
 
 const PACKAGE_VERSION = "1.7.0";
 const CANDIDATE_SHA = "78bd6e7d4e5656d09e76c4c85d01a85b3515b354";
-const PACKAGE_INTEGRITY = "sha512-0sZShBTX/+332BEavQ46oHcoUygXwfus+NPa/B37z/6OUcMb/3Q8n7QrqOxIq1EIQmTmtgusZ35car8Spp7Evw==";
-const PACKAGE_SHASUM = "9b4199489324d2fb21e6a44b5feb7eadd8000817";
+const PARAMS_HASH = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const MESSAGE_HASH = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
 function tempDir(t: TestContext, prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
@@ -24,7 +25,11 @@ function tempDir(t: TestContext, prefix: string): string {
   return dir;
 }
 
-function fakeSubject(t: TestContext, options: { behavior?: string; wrongPrefix?: boolean; packageName?: string } = {}): { bin: string; callsPath: string; sha256: string } {
+function packageProof(subject: ReturnType<typeof fakeSubject>): { packageTarball: string; expectedPackageIntegrity: string; expectedPackageShasum: string; repoRoot: string } {
+  return { packageTarball: subject.tarball, expectedPackageIntegrity: subject.tarballIntegrity, expectedPackageShasum: subject.tarballShasum, repoRoot: subject.repoRoot };
+}
+
+function fakeSubject(t: TestContext, options: { behavior?: string; wrongPrefix?: boolean; packageName?: string } = {}): { bin: string; callsPath: string; sha256: string; tarball: string; tarballIntegrity: string; tarballShasum: string; repoRoot: string } {
   const dir = tempDir(t, options.wrongPrefix ? "lco-wrong-prefix-" : "lossless-codex-orchestrator-1.7.0-9b4199489324-");
   writeFileSync(join(dir, "package.json"), JSON.stringify({ name: options.packageName ?? "lossless-codex-orchestrator", version: PACKAGE_VERSION }));
   const callsPath = join(dir, "calls.jsonl");
@@ -57,12 +62,16 @@ process.stdin.on("data", (chunk) => {
         appendFileSync(process.env.LCO_AUDIT_PATH, "{}\\n");
         if (behavior !== "missing-audit-key") writeFileSync(process.env.LCO_AUDIT_PATH + ".key", "", { mode: 0o600 });
       }
-      write({ id: msg.id, result: { protocolVersion: "2025-11-25", serverInfo: { name: "lossless-openclaw-orchestrator", version: "${PACKAGE_VERSION}" }, capabilities: { tools: {} } } });
+      const response = { id: msg.id, result: { protocolVersion: "2025-11-25", serverInfo: { name: "lossless-openclaw-orchestrator", version: "${PACKAGE_VERSION}" }, capabilities: { tools: {} } } };
+      if (behavior === "slow-init-list") setTimeout(() => write(response), 15);
+      else write(response);
       continue;
     }
     if (msg.method === "notifications/initialized") continue;
     if (msg.method === "tools/list") {
-      write({ id: msg.id, result: { tools: [{ name: "lco_codex_control_route" }, { name: "lco_codex_deliver" }] } });
+      const response = { id: msg.id, result: { tools: [{ name: "lco_codex_control_route" }, { name: "lco_codex_deliver" }] } };
+      if (behavior === "slow-init-list") setTimeout(() => write(response), 15);
+      else write(response);
       continue;
     }
     if (msg.method !== "tools/call") continue;
@@ -72,10 +81,11 @@ process.stdin.on("data", (chunk) => {
       if (behavior === "route-ambiguous") output(msg.id, { schema: "lco.codex.controlRoute.v1", status: "ambiguous", route: "app_server", target_ref: null, title_sanitized: null, state: null, supported_actions: [], expires_at: null, reason_codes: ["ambiguous_target"], public_safe: true, raw_transcript_returned: false });
       else output(msg.id, { schema: "lco.codex.controlRoute.v1", status: "selected", route: "app_server", target_ref: "opaque_target_for_test", title_sanitized: args.hint, state: behavior === "route-active" ? "active" : "idle", supported_actions: behavior === "route-active" ? ["steer"] : ["send"], expires_at: behavior === "route-expired" ? "2000-01-01T00:00:00.000Z" : "2099-01-01T00:00:00.000Z", reason_codes: [], public_safe: true, raw_transcript_returned: false });
     } else if (name === "lco_codex_deliver") {
-      if (args.dry_run === false) output(msg.id, { schema: "lco.codex.delivery.v1", status: behavior === "live-reject" ? "blocked" : "accepted", action: "send", target_ref: args.target_ref, live: true, control_sent: behavior !== "live-reject", approval_audit_id: behavior === "approval-mismatch" ? "other-approval" : args.approval_audit_id, params_hash: behavior === "approval-hash-mismatch" ? "other-params" : "params-hash", message_hash: "message-hash", reason_codes: behavior === "live-reject" ? ["control_rejected"] : [], public_safe: true, raw_transcript_returned: false, raw_thread_id: "do-not-leak" });
+      if (args.dry_run === false) output(msg.id, { schema: "lco.codex.delivery.v1", status: behavior === "live-reject" ? "blocked" : "accepted", action: "send", target_ref: args.target_ref, live: true, control_sent: behavior !== "live-reject", approval_audit_id: behavior === "approval-mismatch" ? "other-approval" : args.approval_audit_id, params_hash: behavior === "approval-hash-mismatch" ? "other-params" : behavior === "malformed-hash" ? "params-hash" : "${PARAMS_HASH}", message_hash: behavior === "malformed-hash" ? "message-hash" : "${MESSAGE_HASH}", reason_codes: behavior === "live-reject" ? ["control_rejected"] : [], public_safe: true, raw_transcript_returned: false, raw_thread_id: "do-not-leak" });
       else if (behavior === "generic-dry-run-reject") output(msg.id, { schema: "lco.codex.delivery.v1", status: "accepted", action: "send", target_ref: args.target_ref, live: true, control_sent: true, reason_codes: [], public_safe: true, raw_transcript_returned: false });
+      else if (behavior === "contradictory-dry-run") output(msg.id, { schema: "lco.codex.delivery.v1", status: "dry_run_ready", action: "send", target_ref: args.target_ref, live: false, control_sent: true, approval_audit_id: "approval-for-test", params_hash: "${PARAMS_HASH}", message_hash: "${MESSAGE_HASH}", reason_codes: [], public_safe: true, raw_transcript_returned: false });
       else {
-        output(msg.id, { schema: "lco.codex.delivery.v1", status: "dry_run_ready", action: "send", target_ref: behavior === "target-drift" ? "different_target" : args.target_ref, live: false, control_sent: false, approval_audit_id: "approval-for-test", params_hash: "params-hash", message_hash: "message-hash", reason_codes: [], public_safe: true, raw_transcript_returned: false, audit_path: "/private/audit.jsonl" });
+        output(msg.id, { schema: "lco.codex.delivery.v1", status: "dry_run_ready", action: "send", target_ref: behavior === "target-drift" ? "different_target" : args.target_ref, live: false, control_sent: false, approval_audit_id: "approval-for-test", params_hash: behavior === "malformed-hash" ? "params-hash" : "${PARAMS_HASH}", message_hash: behavior === "malformed-hash" ? "message-hash" : "${MESSAGE_HASH}", reason_codes: [], public_safe: true, raw_transcript_returned: false, audit_path: "/private/audit.jsonl" });
         if (behavior === "disconnect-after-dry-run") setImmediate(() => process.exit(0));
       }
     } else {
@@ -85,7 +95,24 @@ process.stdin.on("data", (chunk) => {
 });
 `, { mode: 0o755 });
   chmodSync(bin, 0o755);
-  return { bin, callsPath, sha256: createHash("sha256").update(readFileSync(bin)).digest("hex") };
+  const packageStaging = tempDir(t, "lco-package-staging-");
+  const packageDir = join(packageStaging, "package");
+  mkdirSync(packageDir);
+  writeFileSync(join(packageDir, "package.json"), readFileSync(join(dir, "package.json")));
+  writeFileSync(join(packageDir, "lco-mcp-server.mjs"), readFileSync(bin), { mode: 0o755 });
+  const tarball = join(packageStaging, "lossless-codex-orchestrator-1.7.0.tgz");
+  execFileSync("tar", ["-czf", tarball, "-C", packageStaging, "package"]);
+  const tarballBytes = readFileSync(tarball);
+  const repoRoot = tempDir(t, "lco-eva-clean-harness-");
+  const source = join(repoRoot, "packages/cli/src/qa-lab-eva-idle-route.ts");
+  mkdirSync(dirname(source), { recursive: true });
+  writeFileSync(source, readFileSync(fileURLToPath(new URL("../packages/cli/src/qa-lab-eva-idle-route.ts", import.meta.url))));
+  execFileSync("git", ["init", "-q"], { cwd: repoRoot });
+  execFileSync("git", ["config", "user.email", "test@example.invalid"], { cwd: repoRoot });
+  execFileSync("git", ["config", "user.name", "test"], { cwd: repoRoot });
+  execFileSync("git", ["add", source], { cwd: repoRoot });
+  execFileSync("git", ["commit", "-qm", "test harness"], { cwd: repoRoot });
+  return { bin, callsPath, sha256: createHash("sha256").update(readFileSync(bin)).digest("hex"), tarball, tarballIntegrity: `sha512-${createHash("sha512").update(tarballBytes).digest("base64")}`, tarballShasum: createHash("sha1").update(tarballBytes).digest("hex"), repoRoot };
 }
 
 function setupClient(events: string[], completionSeen = true): EvaIdleRouteSetupClient {
@@ -124,6 +151,7 @@ test("eva idle route defaults to non-executing and never starts a task", async (
   const report = await runEvaIdleRoute({
     evidenceDir,
     mcpBin: subject.bin,
+    ...packageProof(subject),
     expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
@@ -149,6 +177,7 @@ test("eva idle route stops before execution when immutable subject identity is w
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
     mcpBin: subject.bin,
+    ...packageProof(subject),
     expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
@@ -170,6 +199,7 @@ test("eva idle route rejects an arbitrary executable under the expected prefix",
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
     mcpBin: subject.bin,
+    ...packageProof(subject),
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
     execute: true,
@@ -188,6 +218,7 @@ test("eva idle route reports only an observed noncanonical package name", async 
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
     mcpBin: subject.bin,
+    ...packageProof(subject),
     expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
@@ -208,6 +239,7 @@ test("eva idle route composes one setup, one MCP session, dry-run/live, and comp
   const report = await runEvaIdleRoute({
     evidenceDir,
     mcpBin: subject.bin,
+    ...packageProof(subject),
     expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
@@ -231,13 +263,13 @@ test("eva idle route composes one setup, one MCP session, dry-run/live, and comp
   assert.equal(report.targetHashes.equal, true);
   assert.equal(report.messageHashes.equal, true);
   assert.equal(report.parameterHashes.equal, true);
-  assert.equal(report.parameterHashes.dryRunSha256, "params-hash");
-  assert.equal(report.parameterHashes.liveSha256, "params-hash");
+  assert.equal(report.parameterHashes.dryRunSha256, PARAMS_HASH);
+  assert.equal(report.parameterHashes.liveSha256, PARAMS_HASH);
   assert.equal(report.lastObservedMarker, "completion_probe");
   const serialized = JSON.stringify(report);
   assert.doesNotMatch(serialized, /raw-task-id-must-not-escape|opaque_target_for_test|LCO_IDLE_OK|\/private\/audit\.jsonl/i);
-  assert.equal(report.subject.packageIntegrity, PACKAGE_INTEGRITY);
-  assert.equal(report.subject.packageShasum, PACKAGE_SHASUM);
+  assert.equal(report.subject.packageIntegrity, subject.tarballIntegrity);
+  assert.equal(report.subject.packageShasum, subject.tarballShasum);
   assert.equal(report.subject.immutablePrefixVerified, true);
   assert.equal(report.subject.mcpBinaryHashVerified, true);
   assert.equal(report.auditBoundary.directoryMode700, true);
@@ -260,6 +292,7 @@ test("eva idle route stops before live delivery after the overall acceptance dea
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
     mcpBin: subject.bin,
+    ...packageProof(subject),
     expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
@@ -275,9 +308,8 @@ test("eva idle route stops before live delivery after the overall acceptance dea
   assert.equal(calls.some((call) => call.params?.name === "lco_codex_deliver" && call.params.arguments?.dry_run === false), false);
 });
 
-test("eva idle route retains an unverifiable private audit boundary", async (t) => {
-  const subject = fakeSubject(t, { behavior: "missing-audit-key" });
-  const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("lco-eva-idle-audit-")));
+test("eva idle route requires an explicit package tarball before execution", async (t) => {
+  const subject = fakeSubject(t);
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
     mcpBin: subject.bin,
@@ -288,16 +320,87 @@ test("eva idle route retains an unverifiable private audit boundary", async (t) 
     execute: true,
     now: "2026-08-24T00:00:00.000Z"
   });
-
   assert.equal(report.ok, false);
-  assert.equal(report.auditBoundary.keyRegularMode600, false);
-  assert.equal(report.auditBoundary.cleanupStatus, "retained_for_operator");
-  assert.ok(report.blockers.includes("audit_boundary_verification_failed"));
-  const retained = readdirSync(tmpdir()).filter((name) => name.startsWith("lco-eva-idle-audit-") && !before.has(name));
-  assert.equal(retained.length, 1);
-  const retainedPath = join(tmpdir(), retained[0]!);
-  assert.equal(statSync(retainedPath).mode & 0o777, 0o700);
-  rmSync(retainedPath, { recursive: true, force: true });
+  assert.ok(report.blockers.includes("package_tarball_required"));
+  assert.equal(report.mcpSessionCount, 0);
+});
+
+test("eva idle route uses one initialize/list deadline", async (t) => {
+  const subject = fakeSubject(t, { behavior: "slow-init-list" });
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    ...packageProof(subject),
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    setupClientFactory: async () => setupClient([]),
+    execute: true,
+    initializeListTimeoutMs: 20,
+    now: "2026-08-24T00:00:00.000Z"
+  } as any);
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => /initialize|tools_list|deadline|timeout/.test(blocker)));
+});
+
+test("eva idle route rejects contradictory dry-run posture", async (t) => {
+  const subject = fakeSubject(t, { behavior: "contradictory-dry-run" });
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    ...packageProof(subject),
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    setupClientFactory: async () => setupClient([]),
+    execute: true,
+    now: "2026-08-24T00:00:00.000Z"
+  });
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.includes("generic_dry_run_rejected"));
+});
+
+test("eva idle route rejects malformed adapter hashes before receipt assignment", async (t) => {
+  const subject = fakeSubject(t, { behavior: "malformed-hash" });
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    ...packageProof(subject),
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    setupClientFactory: async () => setupClient([]),
+    execute: true,
+    now: "2026-08-24T00:00:00.000Z"
+  });
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.includes("approval_hash_invalid"));
+  assert.equal(report.parameterHashes.dryRunSha256, null);
+  assert.equal(report.messageHashes.dryRunSha256, null);
+});
+
+test("eva idle route rejects a completion that settles at the outer deadline", async (t) => {
+  const subject = fakeSubject(t);
+  const delayed = setupClient([], true);
+  delayed.completionObserved = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    return true;
+  };
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    ...packageProof(subject),
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    setupClientFactory: async () => delayed,
+    execute: true,
+    completionTimeoutMs: 700,
+    now: "2026-08-24T00:00:00.000Z"
+  });
+  assert.equal(report.ok, false);
+  assert.equal(report.completionSeen, false);
+  assert.ok(report.blockers.includes("completion_deadline_exceeded"));
 });
 
 test("eva idle route confirms forced MCP exit before deleting audit storage", async (t) => {
@@ -306,6 +409,7 @@ test("eva idle route confirms forced MCP exit before deleting audit storage", as
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
     mcpBin: subject.bin,
+    ...packageProof(subject),
     expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
@@ -327,9 +431,9 @@ test("eva idle route confirms forced MCP exit before deleting audit storage", as
 
 test("eva idle route retains audit storage until the forced MCP close event is confirmed", async (t) => {
   const subject = fakeSubject(t, { behavior: "ignore-sigterm-hold-stdio" });
-  const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("lco-eva-idle-audit-")));
+  let auditPath: string | null = null;
   let subjectClosed: Promise<void> | null = null;
-  let retainedPath: string | null = null;
+  let retainedRoot: string | null = null;
   let holderPid: number | null = null;
   t.after(async () => {
     try {
@@ -338,16 +442,18 @@ test("eva idle route retains audit storage until the forced MCP close event is c
       // The holder may already be gone; cleanup below remains bounded to this test.
     }
     if (subjectClosed) await subjectClosed;
-    if (retainedPath) rmSync(retainedPath, { recursive: true, force: true });
+    if (retainedRoot) rmSync(retainedRoot, { recursive: true, force: true });
   });
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
     mcpBin: subject.bin,
+    ...packageProof(subject),
     expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
     setupClientFactory: async () => setupClient([]),
     spawnFactory: ((...args: Parameters<typeof spawn>) => {
+      auditPath = (args[2] as { env?: NodeJS.ProcessEnv } | undefined)?.env?.LCO_AUDIT_PATH ?? null;
       const child = spawn(...args);
       subjectClosed = new Promise((resolve) => child.once("close", () => resolve()));
       return child;
@@ -356,16 +462,14 @@ test("eva idle route retains audit storage until the forced MCP close event is c
     now: "2026-08-24T00:00:00.000Z"
   });
   holderPid = Number(readFileSync(`${subject.callsPath}.holder`, "utf8"));
+  assert.ok(auditPath);
+  retainedRoot = dirname(auditPath);
 
   assert.equal(report.ok, false);
   assert.ok(report.blockers.includes("mcp_process_exit_unconfirmed"));
   assert.ok(report.blockers.includes("audit_boundary_verification_failed"));
   assert.equal(report.auditBoundary.cleanupStatus, "retained_for_operator");
-  const retained = readdirSync(tmpdir()).filter((name) => name.startsWith("lco-eva-idle-audit-") && !before.has(name));
-  if (retained.length === 1) retainedPath = join(tmpdir(), retained[0]!);
-  assert.equal(retained.length, 1);
-  assert.ok(retainedPath);
-  assert.equal(statSync(retainedPath).mode & 0o777, 0o700);
+  assert.equal(statSync(retainedRoot).mode & 0o777, 0o700);
 });
 
 test("eva idle route preserves the first sanitized live rejection reason", async (t) => {
@@ -373,6 +477,7 @@ test("eva idle route preserves the first sanitized live rejection reason", async
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
     mcpBin: subject.bin,
+    ...packageProof(subject),
     expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
@@ -391,6 +496,7 @@ test("eva idle route receipt is written with redacted stage/error fields", async
   const report = await runEvaIdleRoute({
     evidenceDir,
     mcpBin: subject.bin,
+    ...packageProof(subject),
     expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
@@ -411,6 +517,7 @@ test("eva idle route rejects a generic dry-run and does not continue to live del
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
     mcpBin: subject.bin,
+    ...packageProof(subject),
     expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
@@ -429,6 +536,7 @@ test("eva idle route separates accepted delivery from incomplete completion", as
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
     mcpBin: subject.bin,
+    ...packageProof(subject),
     expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
@@ -450,6 +558,7 @@ test("eva idle route fails closed for ambiguous, active, expired, or drifted tar
     const report = await runEvaIdleRoute({
       evidenceDir: tempDir(t, `lco-eva-idle-evidence-${behavior}-`),
       mcpBin: subject.bin,
+      ...packageProof(subject),
       expectedMcpBinarySha256: subject.sha256,
       packageVersion: PACKAGE_VERSION,
       candidateSha: CANDIDATE_SHA,
@@ -468,6 +577,7 @@ test("eva idle route rejects approval drift without retrying live delivery", asy
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
     mcpBin: subject.bin,
+    ...packageProof(subject),
     expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
@@ -488,6 +598,7 @@ test("eva idle route does not reconnect or reuse approval after the subject sess
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
     mcpBin: subject.bin,
+    ...packageProof(subject),
     expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
