@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { spawn } from "node:child_process";
 import {
+  containsTerminalAssistantMarker,
+  EVA_IDLE_ROUTE_MESSAGE,
   runEvaIdleRoute,
   type EvaIdleRouteReport,
   type EvaIdleRouteSetupClient
@@ -21,7 +24,7 @@ function tempDir(t: TestContext, prefix: string): string {
   return dir;
 }
 
-function fakeSubject(t: TestContext, options: { behavior?: string; wrongPrefix?: boolean } = {}): { bin: string; callsPath: string } {
+function fakeSubject(t: TestContext, options: { behavior?: string; wrongPrefix?: boolean } = {}): { bin: string; callsPath: string; sha256: string } {
   const dir = tempDir(t, options.wrongPrefix ? "lco-wrong-prefix-" : "lossless-codex-orchestrator-1.7.0-9b4199489324-");
   writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "lossless-codex-orchestrator", version: PACKAGE_VERSION }));
   const callsPath = join(dir, "calls.jsonl");
@@ -44,7 +47,7 @@ process.stdin.on("data", (chunk) => {
     if (calls) appendFileSync(calls, JSON.stringify(msg) + "\\n");
     if (msg.method === "initialize") {
       if (process.env.LCO_AUDIT_PATH) {
-        writeFileSync(process.env.LCO_AUDIT_PATH, "", { mode: 0o600 });
+        appendFileSync(process.env.LCO_AUDIT_PATH, "{}\\n");
         writeFileSync(process.env.LCO_AUDIT_PATH + ".key", "", { mode: 0o600 });
       }
       write({ id: msg.id, result: { protocolVersion: "2025-11-25", serverInfo: { name: "lossless-openclaw-orchestrator", version: "${PACKAGE_VERSION}" }, capabilities: { tools: {} } } });
@@ -75,7 +78,7 @@ process.stdin.on("data", (chunk) => {
 });
 `, { mode: 0o755 });
   chmodSync(bin, 0o755);
-  return { bin, callsPath };
+  return { bin, callsPath, sha256: createHash("sha256").update(readFileSync(bin)).digest("hex") };
 }
 
 function setupClient(events: string[], completionSeen = true): EvaIdleRouteSetupClient {
@@ -97,6 +100,14 @@ function setupClient(events: string[], completionSeen = true): EvaIdleRouteSetup
   };
 }
 
+test("eva idle completion accepts only an exact terminal assistant marker", () => {
+  assert.doesNotMatch(EVA_IDLE_ROUTE_MESSAGE, /LCO_IDLE_OK/);
+  assert.equal(containsTerminalAssistantMarker({ thread: { turns: [{ items: [{ type: "userMessage", text: "LCO_IDLE_OK" }] }] } }), false);
+  assert.equal(containsTerminalAssistantMarker({ thread: { turns: [{ items: [{ type: "agentMessage", text: "LCO_IDLE_OK" }] }] } }), true);
+  assert.equal(containsTerminalAssistantMarker({ thread: { turns: [{ items: [{ role: "assistant", content: [{ type: "output_text", text: "LCO_IDLE_OK" }] }] }] } }), true);
+  assert.equal(containsTerminalAssistantMarker({ thread: { turns: [{ items: [{ type: "agentMessage", text: "Done: LCO_IDLE_OK" }] }] } }), false);
+});
+
 test("eva idle route defaults to non-executing and never starts a task", async (t) => {
   const subject = fakeSubject(t);
   const evidenceDir = tempDir(t, "lco-eva-idle-evidence-");
@@ -104,6 +115,7 @@ test("eva idle route defaults to non-executing and never starts a task", async (
   const report = await runEvaIdleRoute({
     evidenceDir,
     mcpBin: subject.bin,
+    expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
     setupClientFactory: async () => setupClient(calls),
@@ -128,6 +140,7 @@ test("eva idle route stops before execution when immutable subject identity is w
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
     mcpBin: subject.bin,
+    expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
     execute: true,
@@ -142,6 +155,25 @@ test("eva idle route stops before execution when immutable subject identity is w
   assert.equal(report.mcpSessionCount, 0);
 });
 
+test("eva idle route rejects an arbitrary executable under the expected prefix", async (t) => {
+  const subject = fakeSubject(t);
+  const calls: string[] = [];
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    execute: true,
+    setupClientFactory: async () => setupClient(calls),
+    now: "2026-08-24T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.includes("subject_mcp_binary_hash_mismatch"));
+  assert.deepEqual(calls, []);
+  assert.equal(report.mcpSessionCount, 0);
+});
+
 test("eva idle route composes one setup, one MCP session, dry-run/live, and completion probe", async (t) => {
   const subject = fakeSubject(t);
   const evidenceDir = tempDir(t, "lco-eva-idle-evidence-");
@@ -149,6 +181,7 @@ test("eva idle route composes one setup, one MCP session, dry-run/live, and comp
   const report = await runEvaIdleRoute({
     evidenceDir,
     mcpBin: subject.bin,
+    expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
     execute: true,
@@ -170,11 +203,20 @@ test("eva idle route composes one setup, one MCP session, dry-run/live, and comp
   assert.equal(calls.at(-1), "close");
   assert.equal(report.targetHashes.equal, true);
   assert.equal(report.messageHashes.equal, true);
+  assert.equal(report.parameterHashes.equal, true);
+  assert.equal(report.parameterHashes.dryRunSha256, "params-hash");
+  assert.equal(report.parameterHashes.liveSha256, "params-hash");
+  assert.equal(report.lastObservedMarker, "completion_probe");
   const serialized = JSON.stringify(report);
   assert.doesNotMatch(serialized, /raw-task-id-must-not-escape|opaque_target_for_test|LCO_IDLE_OK|\/private\/audit\.jsonl/i);
   assert.equal(report.subject.packageIntegrity, PACKAGE_INTEGRITY);
   assert.equal(report.subject.packageShasum, PACKAGE_SHASUM);
   assert.equal(report.subject.immutablePrefixVerified, true);
+  assert.equal(report.subject.mcpBinaryHashVerified, true);
+  assert.equal(report.auditBoundary.directoryMode700, true);
+  assert.equal(report.auditBoundary.jsonlRegularMode600, true);
+  assert.equal(report.auditBoundary.keyRegularMode600, true);
+  assert.equal(report.auditBoundary.cleanupStatus, "cleaned");
   const mcpCalls = readFileSync(subject.callsPath, "utf8").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { method?: string; params?: { name?: string; arguments?: { dry_run?: boolean } } });
   assert.equal(mcpCalls.filter((call) => call.method === "tools/call" && call.params?.name === "lco_codex_deliver" && call.params.arguments?.dry_run === false).length, 1);
   assert.equal(mcpCalls.some((call) => call.params?.name === "lco_codex_control_dry_run"), false);
@@ -186,6 +228,7 @@ test("eva idle route receipt is written with redacted stage/error fields", async
   const report = await runEvaIdleRoute({
     evidenceDir,
     mcpBin: subject.bin,
+    expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
     setupClientFactory: async () => setupClient([]),
@@ -205,6 +248,7 @@ test("eva idle route rejects a generic dry-run and does not continue to live del
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
     mcpBin: subject.bin,
+    expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
     setupClientFactory: async () => setupClient([]),
@@ -222,6 +266,7 @@ test("eva idle route separates accepted delivery from incomplete completion", as
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
     mcpBin: subject.bin,
+    expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
     setupClientFactory: async () => setupClient([], false),
@@ -242,6 +287,7 @@ test("eva idle route fails closed for ambiguous, expired, or drifted targets", a
     const report = await runEvaIdleRoute({
       evidenceDir: tempDir(t, `lco-eva-idle-evidence-${behavior}-`),
       mcpBin: subject.bin,
+      expectedMcpBinarySha256: subject.sha256,
       packageVersion: PACKAGE_VERSION,
       candidateSha: CANDIDATE_SHA,
       setupClientFactory: async () => setupClient([]),
@@ -259,6 +305,7 @@ test("eva idle route rejects approval drift without retrying live delivery", asy
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
     mcpBin: subject.bin,
+    expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
     setupClientFactory: async () => setupClient([]),
@@ -278,6 +325,7 @@ test("eva idle route does not reconnect or reuse approval after the subject sess
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
     mcpBin: subject.bin,
+    expectedMcpBinarySha256: subject.sha256,
     packageVersion: PACKAGE_VERSION,
     candidateSha: CANDIDATE_SHA,
     setupClientFactory: async () => setupClient([]),

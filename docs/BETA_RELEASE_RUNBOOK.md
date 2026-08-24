@@ -297,6 +297,8 @@ polls the known disposable task read-only for completion. It uses an opaque
 route target and a single-use matching approval; raw task/thread identifiers,
 approval records, logs, and transcripts stay in process or in the subject's
 private audit boundary. `accepted` and completion are separate receipt markers.
+The receipt retains matching dry/live target, message, and parameter hash pairs
+plus the last observed stage marker, never their raw inputs.
 
 This is candidate smoke evidence built from the source head while exercising
 the supplied immutable package binary. It does not prove the released package

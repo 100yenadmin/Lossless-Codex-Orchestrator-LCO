@@ -148,7 +148,8 @@ Before relying on the public 1.7.0 release, release captains should verify:
 - Scratch live-control evidence targets disposable sessions only.
 - Issue #808 receipts use `lco.evaIdleRouteDeliver.v1`, retain no raw target,
   task/thread, approval, audit, log, transcript, or configuration fields, and
-  distinguish transport `accepted` from completion.
+  distinguish transport `accepted` from completion while retaining paired
+  dry/live target, message, and parameter hashes plus the last observed stage.
 - Release notes are written for users and developers; operator risk detail stays
   in this file, `docs/RELEASE_CHECKLIST.md`, `docs/CLAIM_AUDIT.md`, issue
   comments, and QA evidence.
