@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -81,7 +81,11 @@ process.stdin.on("data", (chunk) => {
       if (behavior === "route-ambiguous") output(msg.id, { schema: "lco.codex.controlRoute.v1", status: "ambiguous", route: "app_server", target_ref: null, title_sanitized: null, state: null, supported_actions: [], expires_at: null, reason_codes: ["ambiguous_target"], public_safe: true, raw_transcript_returned: false });
       else output(msg.id, { schema: "lco.codex.controlRoute.v1", status: "selected", route: "app_server", target_ref: "opaque_target_for_test", title_sanitized: args.hint, state: behavior === "route-active" ? "active" : "idle", supported_actions: behavior === "route-active" ? ["steer"] : ["send"], expires_at: behavior === "route-expired" ? "2000-01-01T00:00:00.000Z" : "2099-01-01T00:00:00.000Z", reason_codes: [], public_safe: true, raw_transcript_returned: false });
     } else if (name === "lco_codex_deliver") {
-      if (args.dry_run === false) output(msg.id, { schema: "lco.codex.delivery.v1", status: behavior === "live-reject" ? "blocked" : "accepted", action: "send", target_ref: args.target_ref, live: true, control_sent: behavior !== "live-reject", approval_audit_id: behavior === "approval-mismatch" ? "other-approval" : args.approval_audit_id, params_hash: behavior === "approval-hash-mismatch" ? "other-params" : behavior === "malformed-hash" ? "params-hash" : "${PARAMS_HASH}", message_hash: behavior === "malformed-hash" ? "message-hash" : "${MESSAGE_HASH}", reason_codes: behavior === "live-reject" ? ["control_rejected"] : [], public_safe: true, raw_transcript_returned: false, raw_thread_id: "do-not-leak" });
+      if (args.dry_run === false) {
+        const live = { schema: "lco.codex.delivery.v1", status: behavior === "live-reject" || behavior === "contradictory-live" ? "blocked" : "accepted", action: "send", target_ref: args.target_ref, live: true, control_sent: behavior !== "live-reject", approval_audit_id: behavior === "approval-mismatch" ? "other-approval" : args.approval_audit_id, params_hash: behavior === "approval-hash-mismatch" ? "other-params" : behavior === "malformed-hash" ? "params-hash" : "${PARAMS_HASH}", message_hash: behavior === "malformed-hash" ? "message-hash" : "${MESSAGE_HASH}", reason_codes: behavior === "live-reject" ? ["control_rejected"] : [], public_safe: true, raw_transcript_returned: false, raw_thread_id: "do-not-leak" };
+        if (behavior === "slow-live") setTimeout(() => output(msg.id, live), 1_000);
+        else output(msg.id, live);
+      }
       else if (behavior === "generic-dry-run-reject") output(msg.id, { schema: "lco.codex.delivery.v1", status: "accepted", action: "send", target_ref: args.target_ref, live: true, control_sent: true, reason_codes: [], public_safe: true, raw_transcript_returned: false });
       else if (behavior === "contradictory-dry-run") output(msg.id, { schema: "lco.codex.delivery.v1", status: "dry_run_ready", action: "send", target_ref: args.target_ref, live: false, control_sent: true, approval_audit_id: "approval-for-test", params_hash: "${PARAMS_HASH}", message_hash: "${MESSAGE_HASH}", reason_codes: [], public_safe: true, raw_transcript_returned: false });
       else {
@@ -332,6 +336,27 @@ test("eva idle route stops before live delivery after the overall acceptance dea
   assert.equal(calls.some((call) => call.params?.name === "lco_codex_deliver" && call.params.arguments?.dry_run === false), false);
 });
 
+test("eva idle route bounds live delivery to the remaining overall deadline", async (t) => {
+  const subject = fakeSubject(t, { behavior: "slow-live" });
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    ...packageProof(subject),
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    setupClientFactory: async () => setupClient([]),
+    execute: true,
+    completionTimeoutMs: 700,
+    now: "2026-08-24T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.accepted, false);
+  assert.equal(report.approvalBindingVerified, false);
+  assert.ok(report.blockers.some((blocker) => /timeout|deadline/.test(blocker)));
+});
+
 test("eva idle route requires an explicit package tarball before execution", async (t) => {
   const subject = fakeSubject(t);
   const report = await runEvaIdleRoute({
@@ -401,6 +426,73 @@ test("eva idle route rejects contradictory dry-run posture", async (t) => {
   });
   assert.equal(report.ok, false);
   assert.ok(report.blockers.includes("generic_dry_run_rejected"));
+});
+
+test("eva idle route rejects a contradictory live delivery status", async (t) => {
+  const subject = fakeSubject(t, { behavior: "contradictory-live" });
+  const calls: string[] = [];
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    ...packageProof(subject),
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    setupClientFactory: async () => setupClient(calls),
+    execute: true,
+    now: "2026-08-24T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.accepted, false);
+  assert.equal(report.approvalBindingVerified, false);
+  assert.ok(report.blockers.includes("live_delivery_status_invalid"));
+  assert.equal(calls.some((call) => call.startsWith("thread/read:")), false);
+});
+
+test("eva idle route reserves the receipt destination before live execution", async (t) => {
+  const subject = fakeSubject(t);
+  const evidenceDir = tempDir(t, "lco-eva-idle-evidence-");
+  mkdirSync(join(evidenceDir, "eva-idle-route.json"));
+  const calls: string[] = [];
+
+  await assert.rejects(runEvaIdleRoute({
+    evidenceDir,
+    mcpBin: subject.bin,
+    ...packageProof(subject),
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    setupClientFactory: async () => setupClient(calls),
+    execute: true,
+    now: "2026-08-24T00:00:00.000Z"
+  }), /evidence_destination_unavailable/);
+
+  assert.deepEqual(calls, []);
+  assert.equal(existsSync(subject.callsPath), false);
+});
+
+test("eva idle route hashes a resolved CLI target when invoked through a symlink", async (t) => {
+  const subject = fakeSubject(t);
+  const originalArgv1 = process.argv[1];
+  const cliLink = join(tempDir(t, "lco-eva-cli-link-"), "lco");
+  symlinkSync(fileURLToPath(import.meta.url), cliLink);
+  process.argv[1] = cliLink;
+  try {
+    const report = await runEvaIdleRoute({
+      evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+      mcpBin: subject.bin,
+      repoRoot: subject.repoRoot,
+      expectedMcpBinarySha256: subject.sha256,
+      packageVersion: PACKAGE_VERSION,
+      candidateSha: CANDIDATE_SHA,
+      now: "2026-08-24T00:00:00.000Z"
+    });
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.match(report.executing_cli_sha256 ?? "", /^[0-9a-f]{64}$/);
+  } finally {
+    process.argv[1] = originalArgv1;
+  }
 });
 
 test("eva idle route rejects malformed adapter hashes before receipt assignment", async (t) => {
@@ -479,6 +571,7 @@ test("eva idle route retains audit storage until the forced MCP close event is c
   let subjectClosed: Promise<void> | null = null;
   let retainedRoot: string | null = null;
   let snapshotOwner: string | null = null;
+  let runtimeRoot: string | null = null;
   let holderPid: number | null = null;
   t.after(async () => {
     try {
@@ -489,6 +582,7 @@ test("eva idle route retains audit storage until the forced MCP close event is c
     if (subjectClosed) await subjectClosed;
     if (retainedRoot) rmSync(retainedRoot, { recursive: true, force: true });
     if (snapshotOwner && existsSync(snapshotOwner)) rmSync(snapshotOwner, { recursive: true, force: true });
+    if (runtimeRoot && existsSync(runtimeRoot)) rmSync(runtimeRoot, { recursive: true, force: true });
   });
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
@@ -500,6 +594,7 @@ test("eva idle route retains audit storage until the forced MCP close event is c
     setupClientFactory: async () => setupClient([]),
     spawnFactory: ((...args: Parameters<typeof spawn>) => {
       auditPath = (args[2] as { env?: NodeJS.ProcessEnv } | undefined)?.env?.LCO_AUDIT_PATH ?? null;
+      runtimeRoot = (args[2] as { env?: NodeJS.ProcessEnv } | undefined)?.env?.HOME ?? null;
       const spawnedBin = String(args[0]);
       if (spawnedBin !== subject.bin && spawnedBin.includes("lco-eva-idle-package-")) snapshotOwner = dirname(dirname(dirname(spawnedBin)));
       const child = spawn(...args);
@@ -519,6 +614,8 @@ test("eva idle route retains audit storage until the forced MCP close event is c
   assert.equal(report.auditBoundary.cleanupStatus, "retained_for_operator");
   assert.equal(statSync(retainedRoot).mode & 0o777, 0o700);
   assert.ok(snapshotOwner && existsSync(snapshotOwner));
+  assert.ok(report.blockers.includes("runtime_root_retained"));
+  assert.ok(runtimeRoot && existsSync(runtimeRoot));
 });
 
 test("eva idle route preserves the first sanitized live rejection reason", async (t) => {

@@ -82,6 +82,7 @@ test("public docs include setup, MCP/OpenClaw, demo, and approval-boundary proof
   const demo = read("docs/BETA_RELEASE_DEMO.md");
   const claimAudit = read("docs/CLAIM_AUDIT.md");
   const claudeBoundary = read("docs/CLAUDE_ADAPTER_BOUNDARY.md");
+  const releaseChecklist = read("docs/RELEASE_CHECKLIST.md");
 
   assert.match(readme, /docs\/OPENCLAW_PLUGIN\.md/);
   assert.match(readme, /docs\/SETUP\.md/);
@@ -91,6 +92,7 @@ test("public docs include setup, MCP/OpenClaw, demo, and approval-boundary proof
   assert.match(setup, /lco openclaw tool-smoke/);
   assert.match(setup, /LCO_CODEX_TRANSPORT=daemon\s+lco qa-lab eva-idle-route/i);
   assert.match(setup, /--package-tarball\s+<[^>]+>/i);
+  assert.match(releaseChecklist, /LCO_CODEX_TRANSPORT=daemon\s+lco qa-lab eva-idle-route/i);
   assert.match(openclawDocs, /lco-mcp-server/);
   assert.match(openclawDocs, /dry_run=true/);
   assert.match(openclawDocs, /approval_audit_id/);

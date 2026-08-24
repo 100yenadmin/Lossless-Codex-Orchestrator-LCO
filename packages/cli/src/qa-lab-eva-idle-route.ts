@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, ftruncateSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -184,10 +184,12 @@ type HarnessProvenance = {
 };
 
 type StageResult<T> = { value: T; stage: EvaIdleRouteStage };
+type ReceiptReservation = { fd: number };
 
 export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<EvaIdleRouteReport> {
-  mkdirSync(options.evidenceDir, { recursive: true });
   const execute = options.execute === true;
+  const receiptReservation = execute ? reserveEvaIdleRouteReport(options.evidenceDir) : null;
+  if (!execute) mkdirSync(options.evidenceDir, { recursive: true });
   const generatedAt = options.now ?? new Date().toISOString();
   const startedAt = process.hrtime.bigint();
   const completionBudgetMs = options.completionTimeoutMs ?? DEFAULT_STAGE_TIMEOUTS.completionMs;
@@ -334,6 +336,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
             dryParamsHash = dry.value.paramsHash;
             const live = await runStage(stages, "deliver_live", async () => {
               requireDeadlineOpen(outerAcceptanceDeadline);
+              const remainingLiveMs = outerAcceptanceDeadline! - Date.now();
               const result = await session!.request("tools/call", {
                 name: "lco_codex_deliver",
                 arguments: {
@@ -342,11 +345,13 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
                   dry_run: false,
                   approval_audit_id: dry.value!.approvalId
                 }
-              }, DEFAULT_STAGE_TIMEOUTS.deliverMs);
+              }, Math.min(DEFAULT_STAGE_TIMEOUTS.deliverMs, remainingLiveMs));
+              requireDeadlineOpen(outerAcceptanceDeadline);
               const record = requireStructured(result);
               if (record.live !== true || record.control_sent !== true) {
                 throw new EvaIdleRouteError(firstReason(record, "approval_or_control_rejected"));
               }
+              if (record.status !== "accepted") throw new EvaIdleRouteError("live_delivery_status_invalid");
               if (record.action !== "send") throw new EvaIdleRouteError("idle_send_action_required");
               if (stringValue(record.approval_audit_id) !== dry.value!.approvalId) throw new EvaIdleRouteError("approval_binding_mismatch");
               const paramsHash = stringValue(record.params_hash);
@@ -411,10 +416,13 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
       }
     }
     if (runtimeRoot) {
-      try {
-        rmSync(runtimeRoot, { recursive: true, force: true });
-      } catch {
-        blockers.push("runtime_cleanup_failed");
+      if (blockers.includes("mcp_process_exit_unconfirmed")) blockers.push("runtime_root_retained");
+      else {
+        try {
+          rmSync(runtimeRoot, { recursive: true, force: true });
+        } catch {
+          blockers.push("runtime_cleanup_failed");
+        }
       }
     }
     audit = finalizeAuditBoundary(audit, !blockers.includes("mcp_process_exit_unconfirmed"));
@@ -484,13 +492,42 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
     forbidden_fields_present: false,
     blockers: uniqueStrings(blockers),
     warnings: uniqueStrings(warnings),
-    proofBoundary: "This public-safe operator-only candidate harness proves only the named disposable Eva idle route, opaque dry-run/live acceptance, and bounded read-only completion marker when those stages pass. It does not prove Eva runtime safety, Hermes handler/lock/dispatch health, release publication, customer readiness, fleet readiness, or any live action beyond this one disposable task.",
+    proofBoundary: "This public-safe operator-only candidate harness proves only the named disposable Eva idle route, opaque dry-run/live acceptance, and bounded read-only completion marker when those stages pass. Declared external dependency artifacts remain outside the package-owned integrity claim. It does not prove Eva runtime safety, Hermes handler/lock/dispatch health, release publication, customer readiness, fleet readiness, or any live action beyond this one disposable task.",
     nextSafeCommands: [
       `LCO_CODEX_TRANSPORT=daemon lco qa-lab eva-idle-route --evidence-dir <path> --mcp-bin <exact-package-bin> --package-tarball <canonical-1.7.0.tgz> --package-version ${options.packageVersion} --candidate-sha ${options.candidateSha} [--execute] [--strict]`
     ]
   };
-  writeEvaIdleRouteReport(report, options.evidenceDir);
+  try {
+    if (receiptReservation) writeReservedEvaIdleRouteReport(report, receiptReservation);
+    else writeEvaIdleRouteReport(report, options.evidenceDir);
+  } finally {
+    if (receiptReservation) closeSync(receiptReservation.fd);
+  }
   return report;
+}
+
+function reserveEvaIdleRouteReport(evidenceDir: string): ReceiptReservation {
+  try {
+    mkdirSync(evidenceDir, { recursive: true });
+    const outputPath = join(evidenceDir, "eva-idle-route.json");
+    try {
+      const stat = lstatSync(outputPath);
+      if (!stat.isFile()) throw new EvaIdleRouteError("evidence_destination_unavailable");
+      return { fd: openSync(outputPath, "r+") };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      return { fd: openSync(outputPath, "wx", 0o600) };
+    }
+  } catch {
+    throw new EvaIdleRouteError("evidence_destination_unavailable");
+  }
+}
+
+function writeReservedEvaIdleRouteReport(report: EvaIdleRouteReport, reservation: ReceiptReservation): void {
+  const serialized = `${JSON.stringify(report, null, 2)}\n`;
+  if (containsForbiddenReceiptFields(serialized)) throw new Error("eva_idle_route_forbidden_fields_detected");
+  ftruncateSync(reservation.fd, 0);
+  writeFileSync(reservation.fd, serialized);
 }
 
 export function writeEvaIdleRouteReport(report: EvaIdleRouteReport, evidenceDir: string): string {
@@ -989,8 +1026,9 @@ function readHarnessProvenance(repoRoot: string, blockers: string[]): HarnessPro
 
 function hashRegularFile(path: string): string | null {
   try {
-    if (!lstatSync(path).isFile()) return null;
-    return sha256(readFileSync(path));
+    const resolved = realpathSync(path);
+    if (!lstatSync(resolved).isFile()) return null;
+    return sha256(readFileSync(resolved));
   } catch {
     return null;
   }
