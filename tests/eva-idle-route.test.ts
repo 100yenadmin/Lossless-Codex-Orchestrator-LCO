@@ -31,11 +31,18 @@ function fakeSubject(t: TestContext, options: { behavior?: string; wrongPrefix?:
   const bin = join(dir, "lco-mcp-server.mjs");
   writeFileSync(bin, `#!/usr/bin/env node
 import { appendFileSync, writeFileSync } from "node:fs";
+import { spawn as spawnChild } from "node:child_process";
 const calls = ${JSON.stringify(callsPath)};
 const behavior = ${JSON.stringify(options.behavior ?? "")};
 let buffer = "";
 const write = (payload) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...payload }) + "\\n");
 const output = (id, value) => write({ id, result: { structuredContent: value, content: [{ type: "text", text: JSON.stringify(value) }] } });
+if (behavior.startsWith("ignore-sigterm")) process.on("SIGTERM", () => {});
+if (behavior === "ignore-sigterm-hold-stdio") {
+  const holder = spawnChild(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: ["ignore", "inherit", "inherit"] });
+  writeFileSync(calls + ".holder", String(holder.pid));
+  holder.unref();
+}
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => {
   buffer += chunk;
@@ -291,6 +298,74 @@ test("eva idle route retains an unverifiable private audit boundary", async (t) 
   const retainedPath = join(tmpdir(), retained[0]!);
   assert.equal(statSync(retainedPath).mode & 0o777, 0o700);
   rmSync(retainedPath, { recursive: true, force: true });
+});
+
+test("eva idle route confirms forced MCP exit before deleting audit storage", async (t) => {
+  const subject = fakeSubject(t, { behavior: "ignore-sigterm" });
+  let observedSignal: NodeJS.Signals | null = null;
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    setupClientFactory: async () => setupClient([]),
+    spawnFactory: ((...args: Parameters<typeof spawn>) => {
+      const child = spawn(...args);
+      child.on("close", (_code, signal) => { observedSignal = signal; });
+      return child;
+    }) as typeof spawn,
+    execute: true,
+    now: "2026-08-24T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+  assert.equal(observedSignal, "SIGKILL");
+  assert.equal(report.auditBoundary.cleanupStatus, "cleaned");
+  assert.equal(report.blockers.includes("mcp_process_exit_unconfirmed"), false);
+});
+
+test("eva idle route retains audit storage until the forced MCP close event is confirmed", async (t) => {
+  const subject = fakeSubject(t, { behavior: "ignore-sigterm-hold-stdio" });
+  const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("lco-eva-idle-audit-")));
+  let subjectClosed: Promise<void> | null = null;
+  let retainedPath: string | null = null;
+  let holderPid: number | null = null;
+  t.after(async () => {
+    try {
+      if (holderPid && Number.isInteger(holderPid)) process.kill(holderPid, "SIGKILL");
+    } catch {
+      // The holder may already be gone; cleanup below remains bounded to this test.
+    }
+    if (subjectClosed) await subjectClosed;
+    if (retainedPath) rmSync(retainedPath, { recursive: true, force: true });
+  });
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    setupClientFactory: async () => setupClient([]),
+    spawnFactory: ((...args: Parameters<typeof spawn>) => {
+      const child = spawn(...args);
+      subjectClosed = new Promise((resolve) => child.once("close", () => resolve()));
+      return child;
+    }) as typeof spawn,
+    execute: true,
+    now: "2026-08-24T00:00:00.000Z"
+  });
+  holderPid = Number(readFileSync(`${subject.callsPath}.holder`, "utf8"));
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.includes("mcp_process_exit_unconfirmed"));
+  assert.ok(report.blockers.includes("audit_boundary_verification_failed"));
+  assert.equal(report.auditBoundary.cleanupStatus, "retained_for_operator");
+  const retained = readdirSync(tmpdir()).filter((name) => name.startsWith("lco-eva-idle-audit-") && !before.has(name));
+  if (retained.length === 1) retainedPath = join(tmpdir(), retained[0]!);
+  assert.equal(retained.length, 1);
+  assert.ok(retainedPath);
+  assert.equal(statSync(retainedPath).mode & 0o777, 0o700);
 });
 
 test("eva idle route preserves the first sanitized live rejection reason", async (t) => {

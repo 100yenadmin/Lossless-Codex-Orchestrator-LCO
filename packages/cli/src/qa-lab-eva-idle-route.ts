@@ -347,7 +347,13 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
         blockers.push("setup_client_close_failed");
       }
     }
-    if (finalSession) await finalSession.close();
+    if (finalSession) {
+      try {
+        if (!(await finalSession.close())) blockers.push("mcp_process_exit_unconfirmed");
+      } catch {
+        blockers.push("mcp_process_exit_unconfirmed");
+      }
+    }
     if (runtimeRoot) {
       try {
         rmSync(runtimeRoot, { recursive: true, force: true });
@@ -355,7 +361,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
         blockers.push("runtime_cleanup_failed");
       }
     }
-    audit = finalizeAuditBoundary(audit);
+    audit = finalizeAuditBoundary(audit, !blockers.includes("mcp_process_exit_unconfirmed"));
     if (execute && audit.cleanupStatus !== "cleaned") blockers.push("audit_boundary_verification_failed");
   }
 
@@ -442,6 +448,8 @@ class EvaIdleRouteError extends Error {
 }
 
 class PersistentMcpSession {
+  private childClosed = false;
+
   private constructor(
     private readonly child: ChildProcessWithoutNullStreams,
     private readonly expectedVersion: string,
@@ -452,7 +460,10 @@ class PersistentMcpSession {
     child.stderr.resume();
     child.stdin.on("error", () => this.failPending("mcp_write_failed"));
     child.on("error", () => this.failPending("mcp_process_error"));
-    child.on("close", () => this.failPending("mcp_process_closed"));
+    child.on("close", () => {
+      this.childClosed = true;
+      this.failPending("mcp_process_closed");
+    });
   }
 
   static async start(options: {
@@ -482,7 +493,7 @@ class PersistentMcpSession {
       await session.notification("notifications/initialized", {});
       return session;
     } catch (error) {
-      await session.close();
+      if (!(await session.close())) throw new EvaIdleRouteError("mcp_process_exit_unconfirmed");
       throw error;
     }
   }
@@ -495,19 +506,36 @@ class PersistentMcpSession {
     return this.send(method, params, false, this.timeoutMs);
   }
 
-  async close(): Promise<void> {
-    if (this.child.exitCode === null && this.child.signalCode === null) {
+  async close(): Promise<boolean> {
+    let exitConfirmed = this.childClosed;
+    if (!exitConfirmed) {
       this.child.kill("SIGTERM");
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(() => resolve(), 250);
-        this.child.once("close", () => {
-          clearTimeout(timer);
-          resolve();
-        });
-      });
-      if (this.child.exitCode === null && this.child.signalCode === null) this.child.kill("SIGKILL");
+      exitConfirmed = await this.waitForClose(250);
+      if (!exitConfirmed) {
+        this.child.kill("SIGKILL");
+        exitConfirmed = await this.waitForClose(1_000);
+      }
     }
     this.failPending("mcp_session_closed");
+    return exitConfirmed;
+  }
+
+  private async waitForClose(timeoutMs: number): Promise<boolean> {
+    if (this.childClosed) return true;
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (confirmed: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.child.off("close", onClose);
+        resolve(confirmed);
+      };
+      const onClose = () => finish(true);
+      const timer = setTimeout(() => finish(this.childClosed), timeoutMs);
+      this.child.once("close", onClose);
+      if (this.childClosed) finish(true);
+    });
   }
 
   private readonly pending = new Map<number, { resolve: (value: unknown) => void; reject: (reason?: unknown) => void; timer: ReturnType<typeof setTimeout> }>();
@@ -625,12 +653,12 @@ function createAuditBoundary(): AuditBoundary {
   };
 }
 
-function finalizeAuditBoundary(audit: AuditBoundary): AuditBoundary {
+function finalizeAuditBoundary(audit: AuditBoundary, allowCleanup = true): AuditBoundary {
   if (!audit.rootPath || !audit.auditPath) return audit;
   const jsonl = regularMode600(audit.auditPath);
   const key = regularMode600(`${audit.auditPath}.key`);
   const directoryMode700 = modeIs(audit.rootPath, 0o700);
-  const safeToDelete = directoryMode700 && jsonl && key;
+  const safeToDelete = allowCleanup && directoryMode700 && jsonl && key;
   if (safeToDelete) {
     rmSync(audit.rootPath, { recursive: true, force: true });
     return { ...audit, directoryMode700, jsonlRegularMode600: jsonl, keyRegularMode600: key, cleanupStatus: "cleaned" };
