@@ -472,6 +472,29 @@ test("eva idle route reserves the receipt destination before live execution", as
   assert.equal(existsSync(subject.callsPath), false);
 });
 
+test("eva idle route rejects an existing receipt before live execution", async (t) => {
+  const subject = fakeSubject(t);
+  const evidenceDir = tempDir(t, "lco-eva-idle-evidence-");
+  writeFileSync(join(evidenceDir, "eva-idle-route.json"), "existing receipt\n", { mode: 0o600 });
+  const calls: string[] = [];
+
+  await assert.rejects(runEvaIdleRoute({
+    evidenceDir,
+    mcpBin: subject.bin,
+    ...packageProof(subject),
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    setupClientFactory: async () => setupClient(calls),
+    execute: true,
+    now: "2026-08-24T00:00:00.000Z"
+  }), /evidence_destination_unavailable/);
+
+  assert.deepEqual(calls, []);
+  assert.equal(existsSync(subject.callsPath), false);
+  assert.equal(readFileSync(join(evidenceDir, "eva-idle-route.json"), "utf8"), "existing receipt\n");
+});
+
 test("eva idle route hashes a resolved CLI target when invoked through a symlink", async (t) => {
   const subject = fakeSubject(t);
   const originalArgv1 = process.argv[1];
