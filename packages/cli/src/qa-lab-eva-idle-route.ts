@@ -156,9 +156,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
   const execute = options.execute === true;
   const generatedAt = options.now ?? new Date().toISOString();
   const startedAt = process.hrtime.bigint();
-  const idleAcceptanceDeadline = execute
-    ? Date.now() + (options.completionTimeoutMs ?? DEFAULT_STAGE_TIMEOUTS.completionMs)
-    : null;
+  const completionBudgetMs = options.completionTimeoutMs ?? DEFAULT_STAGE_TIMEOUTS.completionMs;
   const stages: EvaIdleRouteStage[] = [];
   const blockers: string[] = [];
   const warnings: string[] = [];
@@ -290,7 +288,9 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
                 }
               }, DEFAULT_STAGE_TIMEOUTS.deliverMs);
               const record = requireStructured(result);
-              if (record.live !== true || record.control_sent !== true) throw new EvaIdleRouteError(stringValue(record.reason_codes) ?? "approval_or_control_rejected");
+              if (record.live !== true || record.control_sent !== true) {
+                throw new EvaIdleRouteError(firstReason(record, "approval_or_control_rejected"));
+              }
               if (stringValue(record.approval_audit_id) !== dry.value!.approvalId) throw new EvaIdleRouteError("approval_binding_mismatch");
               if (stringValue(record.target_ref) !== routeTarget) throw new EvaIdleRouteError("target_drift");
               if (stringValue(record.params_hash) !== dry.value!.paramsHash || stringValue(record.message_hash) !== dry.value!.messageHash) {
@@ -309,11 +309,10 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
               liveMessageHash = live.value!.messageHash;
               liveParamsHash = live.value!.paramsHash;
               const completion = await runStage(stages, "completion_probe", async () => {
-                const deadline = idleAcceptanceDeadline ?? Date.now();
-                while (Date.now() <= deadline) {
-                  if (Date.now() >= deadline) break;
+                const deadline = Date.now() + completionBudgetMs;
+                while (Date.now() < deadline) {
                   if (await setupClient!.completionObserved(setup.value!.threadId)) return true;
-                  if (Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
+                  await new Promise((resolve) => setTimeout(resolve, Math.min(100, Math.max(1, deadline - Date.now()))));
                 }
                 throw new EvaIdleRouteError("completion_deadline_exceeded");
               }, blockers, "completion_probe_failed");
@@ -345,6 +344,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
       }
     }
     audit = finalizeAuditBoundary(audit);
+    if (execute && audit.cleanupStatus !== "cleaned") blockers.push("audit_boundary_verification_failed");
   }
 
   const report: EvaIdleRouteReport = {
@@ -407,7 +407,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
     warnings: uniqueStrings(warnings),
     proofBoundary: "This public-safe operator-only candidate harness proves only the named disposable Eva idle route, opaque dry-run/live acceptance, and bounded read-only completion marker when those stages pass. It does not prove Eva runtime safety, Hermes handler/lock/dispatch health, release publication, customer readiness, fleet readiness, or any live action beyond this one disposable task.",
     nextSafeCommands: [
-      `lco qa-lab eva-idle-route --evidence-dir <path> --mcp-bin <exact-package-bin> --package-version ${options.packageVersion} --candidate-sha ${options.candidateSha} [--execute] --strict`
+      `lco qa-lab eva-idle-route --evidence-dir <path> --mcp-bin <exact-package-bin> --package-version ${options.packageVersion} --candidate-sha ${options.candidateSha} [--execute] [--strict]`
     ]
   };
   writeEvaIdleRouteReport(report, options.evidenceDir);
@@ -437,6 +437,7 @@ class PersistentMcpSession {
   ) {
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => this.consume(chunk));
+    child.stderr.resume();
     child.on("error", () => this.failPending("mcp_process_error"));
     child.on("close", () => this.failPending("mcp_process_closed"));
   }
@@ -707,7 +708,7 @@ function inspectPackageIdentity(mcpBin: string, expectedVersion: string, expecte
   if (packageVersion !== expectedVersion) blockers.push("subject_package_version_mismatch");
   const isRelease = packageName === CANONICAL_PACKAGE_NAME && packageVersion === EVA_IDLE_ROUTE_PACKAGE_VERSION;
   return {
-    packageName: packageName ?? (packageVersion ? CANONICAL_PACKAGE_NAME : null),
+    packageName,
     packageVersion,
     packageIntegrity: isRelease ? EVA_IDLE_ROUTE_PACKAGE_INTEGRITY : null,
     packageShasum: isRelease ? EVA_IDLE_ROUTE_PACKAGE_SHASUM : null,
@@ -783,8 +784,12 @@ function containsExactIdleMarker(value: unknown): boolean {
 }
 
 function routeReason(record: StructuredResult): string {
+  return firstReason(record, "route_not_selected");
+}
+
+function firstReason(record: StructuredResult, fallback: string): string {
   const reasons = Array.isArray(record.reason_codes) ? record.reason_codes : [];
-  return typeof reasons[0] === "string" ? reasons[0] : "route_not_selected";
+  return typeof reasons[0] === "string" ? reasons[0] : fallback;
 }
 
 function isOpaqueTarget(value: string): boolean {

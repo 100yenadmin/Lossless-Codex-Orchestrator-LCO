@@ -734,7 +734,7 @@ test("lco qa-lab eva-idle-route --help exposes the bounded candidate-only ladder
   const result = runLoo(["qa-lab", "eva-idle-route", "--help"]);
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /Usage:\n  lco qa-lab eva-idle-route/);
+  assert.match(result.stdout, /Usage:\n  lco qa-lab eva-idle-route .*\[--execute\] \[--strict\]/);
   assert.match(result.stdout, /default\s+non-executing/i);
   assert.match(result.stdout, /exactly one idle send/i);
   assert.match(result.stdout, /one persistent MCP session/i);
