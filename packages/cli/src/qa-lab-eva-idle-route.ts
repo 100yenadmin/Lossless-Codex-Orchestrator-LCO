@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { resolveHomeDir } from "../../runtime/src/env.js";
 import {
   CANONICAL_PACKAGE_NAME,
@@ -157,6 +158,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
   const generatedAt = options.now ?? new Date().toISOString();
   const startedAt = process.hrtime.bigint();
   const completionBudgetMs = options.completionTimeoutMs ?? DEFAULT_STAGE_TIMEOUTS.completionMs;
+  const outerAcceptanceDeadline = execute ? Date.now() + completionBudgetMs : null;
   const stages: EvaIdleRouteStage[] = [];
   const blockers: string[] = [];
   const warnings: string[] = [];
@@ -168,7 +170,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
     options.expectedMcpBinarySha256 ?? EVA_IDLE_ROUTE_MCP_BINARY_SHA256,
     blockers
   );
-  const harnessHead = readHarnessHead(options.repoRoot ?? process.cwd(), blockers);
+  const harnessHead = readHarnessHead(options.repoRoot ?? resolveHarnessRepoRoot(), blockers);
   const title = execute ? createPublicSafeTitle(generatedAt, options.candidateSha) : null;
   let session: PersistentMcpSession | null = null;
   let setupClient: EvaIdleRouteSetupClient | null = null;
@@ -230,6 +232,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
       blockers.push("mcp_preflight_failed");
     } else {
       const setup = await runStage(stages, "task_setup", async () => {
+        requireDeadlineOpen(outerAcceptanceDeadline);
         setupClient = await (options.setupClientFactory ?? createDaemonSetupClient)();
         const threadId = await setupClient.startThread();
         taskCreated = true;
@@ -239,12 +242,16 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
 
       if (setup.stage.status === "passed" && setup.value) {
         const route = await runStage(stages, "route", async () => {
+          requireDeadlineOpen(outerAcceptanceDeadline);
           const result = await session!.request("tools/call", {
             name: "lco_codex_control_route",
             arguments: { hint: title }
           }, DEFAULT_STAGE_TIMEOUTS.routeMs);
           const record = requireStructured(result);
           if (record.status !== "selected" || record.route !== "app_server") throw new EvaIdleRouteError(routeReason(record));
+          if (record.state !== "idle" || !arrayIncludes(record.supported_actions, "send")) {
+            throw new EvaIdleRouteError("idle_send_route_required");
+          }
           const targetRef = stringValue(record.target_ref);
           if (!targetRef || !isOpaqueTarget(targetRef)) throw new EvaIdleRouteError("opaque_target_missing");
           if (record.title_sanitized !== title) throw new EvaIdleRouteError("route_title_mismatch");
@@ -258,12 +265,14 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
           routeTarget = route.value.targetRef;
           routeHash = route.value.hash;
           const dry = await runStage(stages, "deliver_dry_run", async () => {
+            requireDeadlineOpen(outerAcceptanceDeadline);
             const result = await session!.request("tools/call", {
               name: "lco_codex_deliver",
               arguments: { target_ref: routeTarget, message: EVA_IDLE_ROUTE_MESSAGE, dry_run: true }
             }, DEFAULT_STAGE_TIMEOUTS.deliverMs);
             const record = requireStructured(result);
             if (record.live === true || record.status !== "dry_run_ready") throw new EvaIdleRouteError("generic_dry_run_rejected");
+            if (record.action !== "send") throw new EvaIdleRouteError("idle_send_action_required");
             const approvalId = stringValue(record.approval_audit_id);
             if (!approvalId) throw new EvaIdleRouteError("approval_missing");
             const paramsHash = stringValue(record.params_hash);
@@ -278,6 +287,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
             dryMessageHash = dry.value.messageHash;
             dryParamsHash = dry.value.paramsHash;
             const live = await runStage(stages, "deliver_live", async () => {
+              requireDeadlineOpen(outerAcceptanceDeadline);
               const result = await session!.request("tools/call", {
                 name: "lco_codex_deliver",
                 arguments: {
@@ -291,6 +301,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
               if (record.live !== true || record.control_sent !== true) {
                 throw new EvaIdleRouteError(firstReason(record, "approval_or_control_rejected"));
               }
+              if (record.action !== "send") throw new EvaIdleRouteError("idle_send_action_required");
               if (stringValue(record.approval_audit_id) !== dry.value!.approvalId) throw new EvaIdleRouteError("approval_binding_mismatch");
               if (stringValue(record.target_ref) !== routeTarget) throw new EvaIdleRouteError("target_drift");
               if (stringValue(record.params_hash) !== dry.value!.paramsHash || stringValue(record.message_hash) !== dry.value!.messageHash) {
@@ -309,7 +320,8 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
               liveMessageHash = live.value!.messageHash;
               liveParamsHash = live.value!.paramsHash;
               const completion = await runStage(stages, "completion_probe", async () => {
-                const deadline = Date.now() + completionBudgetMs;
+                requireDeadlineOpen(outerAcceptanceDeadline);
+                const deadline = outerAcceptanceDeadline!;
                 while (Date.now() < deadline) {
                   if (await setupClient!.completionObserved(setup.value!.threadId)) return true;
                   await new Promise((resolve) => setTimeout(resolve, Math.min(100, Math.max(1, deadline - Date.now()))));
@@ -438,6 +450,7 @@ class PersistentMcpSession {
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => this.consume(chunk));
     child.stderr.resume();
+    child.stdin.on("error", () => this.failPending("mcp_write_failed"));
     child.on("error", () => this.failPending("mcp_process_error"));
     child.on("close", () => this.failPending("mcp_process_closed"));
   }
@@ -720,6 +733,9 @@ function inspectPackageIdentity(mcpBin: string, expectedVersion: string, expecte
 
 function readHarnessHead(repoRoot: string, blockers: string[]): string {
   try {
+    const resolvedRoot = realpathSync(repoRoot);
+    const topLevel = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: resolvedRoot, encoding: "utf8", timeout: 5_000, stdio: ["ignore", "pipe", "ignore"] }).trim();
+    if (realpathSync(topLevel) !== resolvedRoot) throw new EvaIdleRouteError("harness_repo_root_mismatch");
     const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8", timeout: 5_000 }).trim();
     if (/^[0-9a-f]{40}$/.test(head)) return head;
   } catch {
@@ -727,6 +743,20 @@ function readHarnessHead(repoRoot: string, blockers: string[]): string {
   }
   blockers.push("harness_repo_head_unavailable");
   return "unknown";
+}
+
+function resolveHarnessRepoRoot(): string {
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const candidates = [resolve(moduleDir, "../../../.."), resolve(moduleDir, "../../..")];
+  for (const candidate of candidates) {
+    try {
+      const topLevel = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: candidate, encoding: "utf8", timeout: 5_000, stdio: ["ignore", "pipe", "ignore"] }).trim();
+      if (realpathSync(topLevel) === realpathSync(candidate)) return candidate;
+    } catch {
+      // Try the source-tree or compiled-tree layout next.
+    }
+  }
+  return moduleDir;
 }
 
 function readHarnessCommandVersion(): string {
@@ -763,7 +793,20 @@ function extractToolNames(value: unknown): string[] {
 }
 
 export function containsTerminalAssistantMarker(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(containsTerminalAssistantMarker);
+  const record = asRecord(value);
+  if (!record) return false;
+  const thread = asRecord(record.thread) ?? asRecord(asRecord(record.result)?.thread);
+  const turns = Array.isArray(thread?.turns) ? thread.turns : [];
+  return turns.some((turnValue) => {
+    const turn = asRecord(turnValue);
+    if (turn?.status !== "completed") return false;
+    const items = Array.isArray(turn.items) ? turn.items : [];
+    return items.some(containsAssistantMarker);
+  });
+}
+
+function containsAssistantMarker(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsAssistantMarker);
   const record = asRecord(value);
   if (!record) return false;
   const type = stringValue(record.type)?.replace(/[^a-z]/gi, "").toLowerCase();
@@ -772,8 +815,8 @@ export function containsTerminalAssistantMarker(value: unknown): boolean {
     return Object.values(record).some(containsExactIdleMarker);
   }
   return Object.entries(record)
-    .filter(([key]) => key === "thread" || key === "turns" || key === "items" || key === "data" || key === "result")
-    .some(([, nested]) => containsTerminalAssistantMarker(nested));
+    .filter(([key]) => key === "items" || key === "content" || key === "data" || key === "result")
+    .some(([, nested]) => containsAssistantMarker(nested));
 }
 
 function containsExactIdleMarker(value: unknown): boolean {
@@ -790,6 +833,14 @@ function routeReason(record: StructuredResult): string {
 function firstReason(record: StructuredResult, fallback: string): string {
   const reasons = Array.isArray(record.reason_codes) ? record.reason_codes : [];
   return typeof reasons[0] === "string" ? reasons[0] : fallback;
+}
+
+function arrayIncludes(value: unknown, expected: string): boolean {
+  return Array.isArray(value) && value.includes(expected);
+}
+
+function requireDeadlineOpen(deadline: number | null): void {
+  if (deadline !== null && Date.now() >= deadline) throw new EvaIdleRouteError("outer_deadline_exceeded");
 }
 
 function isOpaqueTarget(value: string): boolean {

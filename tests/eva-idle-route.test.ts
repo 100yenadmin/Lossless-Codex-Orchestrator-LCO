@@ -63,7 +63,7 @@ process.stdin.on("data", (chunk) => {
     const args = msg.params?.arguments || {};
     if (name === "lco_codex_control_route") {
       if (behavior === "route-ambiguous") output(msg.id, { schema: "lco.codex.controlRoute.v1", status: "ambiguous", route: "app_server", target_ref: null, title_sanitized: null, state: null, supported_actions: [], expires_at: null, reason_codes: ["ambiguous_target"], public_safe: true, raw_transcript_returned: false });
-      else output(msg.id, { schema: "lco.codex.controlRoute.v1", status: "selected", route: "app_server", target_ref: "opaque_target_for_test", title_sanitized: args.hint, state: "idle", supported_actions: ["send"], expires_at: behavior === "route-expired" ? "2000-01-01T00:00:00.000Z" : "2099-01-01T00:00:00.000Z", reason_codes: [], public_safe: true, raw_transcript_returned: false });
+      else output(msg.id, { schema: "lco.codex.controlRoute.v1", status: "selected", route: "app_server", target_ref: "opaque_target_for_test", title_sanitized: args.hint, state: behavior === "route-active" ? "active" : "idle", supported_actions: behavior === "route-active" ? ["steer"] : ["send"], expires_at: behavior === "route-expired" ? "2000-01-01T00:00:00.000Z" : "2099-01-01T00:00:00.000Z", reason_codes: [], public_safe: true, raw_transcript_returned: false });
     } else if (name === "lco_codex_deliver") {
       if (args.dry_run === false) output(msg.id, { schema: "lco.codex.delivery.v1", status: behavior === "live-reject" ? "blocked" : "accepted", action: "send", target_ref: args.target_ref, live: true, control_sent: behavior !== "live-reject", approval_audit_id: behavior === "approval-mismatch" ? "other-approval" : args.approval_audit_id, params_hash: behavior === "approval-hash-mismatch" ? "other-params" : "params-hash", message_hash: "message-hash", reason_codes: behavior === "live-reject" ? ["control_rejected"] : [], public_safe: true, raw_transcript_returned: false, raw_thread_id: "do-not-leak" });
       else if (behavior === "generic-dry-run-reject") output(msg.id, { schema: "lco.codex.delivery.v1", status: "accepted", action: "send", target_ref: args.target_ref, live: true, control_sent: true, reason_codes: [], public_safe: true, raw_transcript_returned: false });
@@ -102,10 +102,12 @@ function setupClient(events: string[], completionSeen = true): EvaIdleRouteSetup
 
 test("eva idle completion accepts only an exact terminal assistant marker", () => {
   assert.doesNotMatch(EVA_IDLE_ROUTE_MESSAGE, /LCO_IDLE_OK/);
-  assert.equal(containsTerminalAssistantMarker({ thread: { turns: [{ items: [{ type: "userMessage", text: "LCO_IDLE_OK" }] }] } }), false);
-  assert.equal(containsTerminalAssistantMarker({ thread: { turns: [{ items: [{ type: "agentMessage", text: "LCO_IDLE_OK" }] }] } }), true);
-  assert.equal(containsTerminalAssistantMarker({ thread: { turns: [{ items: [{ role: "assistant", content: [{ type: "output_text", text: "LCO_IDLE_OK" }] }] }] } }), true);
-  assert.equal(containsTerminalAssistantMarker({ thread: { turns: [{ items: [{ type: "agentMessage", text: "Done: LCO_IDLE_OK" }] }] } }), false);
+  assert.equal(containsTerminalAssistantMarker({ thread: { turns: [{ status: "completed", items: [{ type: "userMessage", text: "LCO_IDLE_OK" }] }] } }), false);
+  assert.equal(containsTerminalAssistantMarker({ thread: { turns: [{ status: "inProgress", items: [{ type: "agentMessage", text: "LCO_IDLE_OK" }] }] } }), false);
+  assert.equal(containsTerminalAssistantMarker({ thread: { turns: [{ status: "failed", items: [{ type: "agentMessage", text: "LCO_IDLE_OK" }] }] } }), false);
+  assert.equal(containsTerminalAssistantMarker({ thread: { turns: [{ status: "completed", items: [{ type: "agentMessage", text: "LCO_IDLE_OK" }] }] } }), true);
+  assert.equal(containsTerminalAssistantMarker({ result: { thread: { turns: [{ status: "completed", items: [{ role: "assistant", content: [{ type: "output_text", text: "LCO_IDLE_OK" }] }] }] } } }), true);
+  assert.equal(containsTerminalAssistantMarker({ thread: { turns: [{ status: "completed", items: [{ type: "agentMessage", text: "Done: LCO_IDLE_OK" }] }] } }), false);
 });
 
 test("eva idle route defaults to non-executing and never starts a task", async (t) => {
@@ -240,7 +242,7 @@ test("eva idle route composes one setup, one MCP session, dry-run/live, and comp
   assert.equal(mcpCalls.some((call) => call.params?.name === "lco_codex_control_dry_run"), false);
 });
 
-test("eva idle route starts the completion budget only after live acceptance", async (t) => {
+test("eva idle route stops before live delivery after the overall acceptance deadline", async (t) => {
   const subject = fakeSubject(t);
   const delayedSetup = setupClient([]);
   const originalStartThread = delayedSetup.startThread;
@@ -260,8 +262,10 @@ test("eva idle route starts the completion budget only after live acceptance", a
     now: "2026-08-24T00:00:00.000Z"
   });
 
-  assert.equal(report.ok, true, JSON.stringify(report, null, 2));
-  assert.equal(report.completionSeen, true);
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.includes("outer_deadline_exceeded"));
+  const calls = readFileSync(subject.callsPath, "utf8").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { params?: { name?: string; arguments?: { dry_run?: boolean } } });
+  assert.equal(calls.some((call) => call.params?.name === "lco_codex_deliver" && call.params.arguments?.dry_run === false), false);
 });
 
 test("eva idle route retains an unverifiable private audit boundary", async (t) => {
@@ -355,7 +359,7 @@ test("eva idle route separates accepted delivery from incomplete completion", as
     candidateSha: CANDIDATE_SHA,
     setupClientFactory: async () => setupClient([], false),
     execute: true,
-    completionTimeoutMs: 20,
+    completionTimeoutMs: 400,
     now: "2026-08-24T00:00:00.000Z"
   });
   assert.equal(report.ok, false);
@@ -365,8 +369,8 @@ test("eva idle route separates accepted delivery from incomplete completion", as
   assert.ok(report.blockers.includes("completion_deadline_exceeded"));
 });
 
-test("eva idle route fails closed for ambiguous, expired, or drifted targets", async (t) => {
-  for (const behavior of ["route-ambiguous", "route-expired", "target-drift"]) {
+test("eva idle route fails closed for ambiguous, active, expired, or drifted targets", async (t) => {
+  for (const behavior of ["route-ambiguous", "route-active", "route-expired", "target-drift"]) {
     const subject = fakeSubject(t, { behavior });
     const report = await runEvaIdleRoute({
       evidenceDir: tempDir(t, `lco-eva-idle-evidence-${behavior}-`),
