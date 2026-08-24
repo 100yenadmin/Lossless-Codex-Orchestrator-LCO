@@ -926,7 +926,7 @@ function readHarnessProvenance(repoRoot: string, blockers: string[]): HarnessPro
     sourceMatchesHead = sourceSha256 === sourceHeadSha256;
     if (!sourceMatchesHead) blockers.push("harness_source_head_mismatch");
   } catch (error) {
-    if (head === "unknown") blockers.push(sanitizeErrorClass(error) || "harness_repo_head_unavailable");
+    blockers.push(error instanceof EvaIdleRouteError ? sanitizeErrorClass(error) : "harness_provenance_unavailable");
   }
   harnessSha256 = hashRegularFile(fileURLToPath(import.meta.url));
   cliSha256 = process.argv[1] ? hashRegularFile(process.argv[1]) : null;
