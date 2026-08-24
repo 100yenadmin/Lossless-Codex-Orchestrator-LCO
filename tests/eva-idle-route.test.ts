@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -281,6 +281,30 @@ test("eva idle route composes one setup, one MCP session, dry-run/live, and comp
   assert.equal(mcpCalls.some((call) => call.params?.name === "lco_codex_control_dry_run"), false);
 });
 
+test("eva idle route spawns the verified private package snapshot after an original-bin replacement", async (t) => {
+  const subject = fakeSubject(t);
+  let spawnedBin: string | null = null;
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    ...packageProof(subject),
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    setupClientFactory: async () => setupClient([]),
+    spawnFactory: ((...args: Parameters<typeof spawn>) => {
+      spawnedBin = String(args[0]);
+      writeFileSync(subject.bin, "#!/usr/bin/env node\nprocess.exit(1);\n", { mode: 0o755 });
+      return spawn(...args);
+    }) as typeof spawn,
+    execute: true,
+    now: "2026-08-24T00:00:00.000Z"
+  });
+  assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+  assert.ok(spawnedBin);
+  assert.notEqual(spawnedBin, subject.bin);
+});
+
 test("eva idle route stops before live delivery after the overall acceptance deadline", async (t) => {
   const subject = fakeSubject(t);
   const delayedSetup = setupClient([]);
@@ -454,6 +478,7 @@ test("eva idle route retains audit storage until the forced MCP close event is c
   let auditPath: string | null = null;
   let subjectClosed: Promise<void> | null = null;
   let retainedRoot: string | null = null;
+  let snapshotOwner: string | null = null;
   let holderPid: number | null = null;
   t.after(async () => {
     try {
@@ -463,6 +488,7 @@ test("eva idle route retains audit storage until the forced MCP close event is c
     }
     if (subjectClosed) await subjectClosed;
     if (retainedRoot) rmSync(retainedRoot, { recursive: true, force: true });
+    if (snapshotOwner && existsSync(snapshotOwner)) rmSync(snapshotOwner, { recursive: true, force: true });
   });
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
@@ -474,6 +500,8 @@ test("eva idle route retains audit storage until the forced MCP close event is c
     setupClientFactory: async () => setupClient([]),
     spawnFactory: ((...args: Parameters<typeof spawn>) => {
       auditPath = (args[2] as { env?: NodeJS.ProcessEnv } | undefined)?.env?.LCO_AUDIT_PATH ?? null;
+      const spawnedBin = String(args[0]);
+      if (spawnedBin !== subject.bin && spawnedBin.includes("lco-eva-idle-package-")) snapshotOwner = dirname(dirname(dirname(spawnedBin)));
       const child = spawn(...args);
       subjectClosed = new Promise((resolve) => child.once("close", () => resolve()));
       return child;
@@ -490,6 +518,7 @@ test("eva idle route retains audit storage until the forced MCP close event is c
   assert.ok(report.blockers.includes("audit_boundary_verification_failed"));
   assert.equal(report.auditBoundary.cleanupStatus, "retained_for_operator");
   assert.equal(statSync(retainedRoot).mode & 0o777, 0o700);
+  assert.ok(snapshotOwner && existsSync(snapshotOwner));
 });
 
 test("eva idle route preserves the first sanitized live rejection reason", async (t) => {
@@ -562,7 +591,7 @@ test("eva idle route separates accepted delivery from incomplete completion", as
     candidateSha: CANDIDATE_SHA,
     setupClientFactory: async () => setupClient([], false),
     execute: true,
-    completionTimeoutMs: 400,
+    completionTimeoutMs: 1_000,
     now: "2026-08-24T00:00:00.000Z"
   });
   assert.equal(report.ok, false);
