@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,9 +24,9 @@ function tempDir(t: TestContext, prefix: string): string {
   return dir;
 }
 
-function fakeSubject(t: TestContext, options: { behavior?: string; wrongPrefix?: boolean } = {}): { bin: string; callsPath: string; sha256: string } {
+function fakeSubject(t: TestContext, options: { behavior?: string; wrongPrefix?: boolean; packageName?: string } = {}): { bin: string; callsPath: string; sha256: string } {
   const dir = tempDir(t, options.wrongPrefix ? "lco-wrong-prefix-" : "lossless-codex-orchestrator-1.7.0-9b4199489324-");
-  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "lossless-codex-orchestrator", version: PACKAGE_VERSION }));
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: options.packageName ?? "lossless-codex-orchestrator", version: PACKAGE_VERSION }));
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "lco-mcp-server.mjs");
   writeFileSync(bin, `#!/usr/bin/env node
@@ -48,7 +48,7 @@ process.stdin.on("data", (chunk) => {
     if (msg.method === "initialize") {
       if (process.env.LCO_AUDIT_PATH) {
         appendFileSync(process.env.LCO_AUDIT_PATH, "{}\\n");
-        writeFileSync(process.env.LCO_AUDIT_PATH + ".key", "", { mode: 0o600 });
+        if (behavior !== "missing-audit-key") writeFileSync(process.env.LCO_AUDIT_PATH + ".key", "", { mode: 0o600 });
       }
       write({ id: msg.id, result: { protocolVersion: "2025-11-25", serverInfo: { name: "lossless-openclaw-orchestrator", version: "${PACKAGE_VERSION}" }, capabilities: { tools: {} } } });
       continue;
@@ -174,6 +174,24 @@ test("eva idle route rejects an arbitrary executable under the expected prefix",
   assert.equal(report.mcpSessionCount, 0);
 });
 
+test("eva idle route reports only an observed noncanonical package name", async (t) => {
+  const subject = fakeSubject(t, { packageName: "untrusted-package-name" });
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    execute: true,
+    setupClientFactory: async () => setupClient([]),
+    now: "2026-08-24T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.includes("subject_package_name_mismatch"));
+  assert.equal(report.subject.packageName, null);
+});
+
 test("eva idle route composes one setup, one MCP session, dry-run/live, and completion probe", async (t) => {
   const subject = fakeSubject(t);
   const evidenceDir = tempDir(t, "lco-eva-idle-evidence-");
@@ -220,6 +238,72 @@ test("eva idle route composes one setup, one MCP session, dry-run/live, and comp
   const mcpCalls = readFileSync(subject.callsPath, "utf8").trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { method?: string; params?: { name?: string; arguments?: { dry_run?: boolean } } });
   assert.equal(mcpCalls.filter((call) => call.method === "tools/call" && call.params?.name === "lco_codex_deliver" && call.params.arguments?.dry_run === false).length, 1);
   assert.equal(mcpCalls.some((call) => call.params?.name === "lco_codex_control_dry_run"), false);
+});
+
+test("eva idle route starts the completion budget only after live acceptance", async (t) => {
+  const subject = fakeSubject(t);
+  const delayedSetup = setupClient([]);
+  const originalStartThread = delayedSetup.startThread;
+  delayedSetup.startThread = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    return originalStartThread();
+  };
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    setupClientFactory: async () => delayedSetup,
+    execute: true,
+    completionTimeoutMs: 20,
+    now: "2026-08-24T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+  assert.equal(report.completionSeen, true);
+});
+
+test("eva idle route retains an unverifiable private audit boundary", async (t) => {
+  const subject = fakeSubject(t, { behavior: "missing-audit-key" });
+  const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("lco-eva-idle-audit-")));
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    setupClientFactory: async () => setupClient([]),
+    execute: true,
+    now: "2026-08-24T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.auditBoundary.keyRegularMode600, false);
+  assert.equal(report.auditBoundary.cleanupStatus, "retained_for_operator");
+  assert.ok(report.blockers.includes("audit_boundary_verification_failed"));
+  const retained = readdirSync(tmpdir()).filter((name) => name.startsWith("lco-eva-idle-audit-") && !before.has(name));
+  assert.equal(retained.length, 1);
+  const retainedPath = join(tmpdir(), retained[0]!);
+  assert.equal(statSync(retainedPath).mode & 0o777, 0o700);
+  rmSync(retainedPath, { recursive: true, force: true });
+});
+
+test("eva idle route preserves the first sanitized live rejection reason", async (t) => {
+  const subject = fakeSubject(t, { behavior: "live-reject" });
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    setupClientFactory: async () => setupClient([]),
+    execute: true,
+    now: "2026-08-24T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.includes("control_rejected"));
 });
 
 test("eva idle route receipt is written with redacted stage/error fields", async (t) => {
