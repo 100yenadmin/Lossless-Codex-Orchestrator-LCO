@@ -89,6 +89,8 @@ test("public docs include setup, MCP/OpenClaw, demo, and approval-boundary proof
   assert.match(setup, /lco-mcp-server/);
   assert.match(setup, /lco openclaw dogfood/);
   assert.match(setup, /lco openclaw tool-smoke/);
+  assert.match(setup, /LCO_CODEX_TRANSPORT=daemon\s+lco qa-lab eva-idle-route/i);
+  assert.match(setup, /--package-tarball\s+<[^>]+>/i);
   assert.match(openclawDocs, /lco-mcp-server/);
   assert.match(openclawDocs, /dry_run=true/);
   assert.match(openclawDocs, /approval_audit_id/);

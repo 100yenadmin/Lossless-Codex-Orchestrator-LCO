@@ -1366,7 +1366,7 @@ function mainUsageText(): string {
     "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--qa-lab-run path] [--tool-coverage path] [--live-control-matrix path] [--judge-review path] [--adversarial-review path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
     "  loo release demo-status --evidence-dir path [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]",
     "  loo qa-lab cli-mcp-smoke --evidence-dir path --package-version version [--candidate-sha sha] [--cli-bin path] [--mcp-bin path] [--required-tool name] [--tool-call name] [--timeout-ms ms] [--now iso] [--strict]",
-    "  loo qa-lab eva-idle-route --evidence-dir path --mcp-bin path --package-version 1.7.0 --candidate-sha sha [--execute] [--strict]",
+    "  loo qa-lab eva-idle-route --evidence-dir path --mcp-bin path --package-tarball path --package-version 1.7.0 --candidate-sha sha [--execute] [--strict]",
     "  loo hermes smoke --evidence-dir path --package-version version --candidate-sha sha [--cli-bin path] [--mcp-bin path] [--find-latency-threshold-ms ms] [--timeout-ms ms] [--now iso] [--strict]",
     "  loo qa-lab run --suite ga --artifact published|candidate --evidence-dir path --package-version version --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--tool-coverage path] [--workflow-run path] [--cli-mcp-smoke path] [--desktop-contract path] [--live-control-matrix path] [--scenario-sweep path] [--scorecard-sweep path] [--privacy-scan path] [--now iso] [--strict]",
     "  loo qa-lab tool-coverage --evidence-dir path [--tool-smoke-report path] [--dogfood-report path] [--published-smoke path] [--manifest path] [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--coverage-policy full|facade] [--now iso] [--strict]",
@@ -2327,7 +2327,7 @@ function printQaLabCliMcpSmokeHelp(): void {
 function printQaLabEvaIdleRouteHelp(): void {
   console.log([
     "Usage:",
-    "  lco qa-lab eva-idle-route --evidence-dir path --mcp-bin path --package-version 1.7.0 --candidate-sha sha [--execute] [--strict]",
+    "  lco qa-lab eva-idle-route --evidence-dir path --mcp-bin path --package-tarball path --package-version 1.7.0 --candidate-sha sha [--execute] [--strict]",
     "",
     "Runs the operator-only Eva idle-route ladder against one exact package-owned MCP binary.",
     "",
@@ -5313,6 +5313,7 @@ function parseQaLabCliMcpSmokeArgs(input: string[]): {
 function parseQaLabEvaIdleRouteArgs(input: string[]): {
   evidenceDir: string;
   mcpBin: string;
+  packageTarball?: string;
   packageVersion: string;
   candidateSha: string;
   execute: boolean;
@@ -5320,6 +5321,7 @@ function parseQaLabEvaIdleRouteArgs(input: string[]): {
 } {
   let evidenceDir: string | undefined;
   let mcpBin: string | undefined;
+  let packageTarball: string | undefined;
   let packageVersion: string | undefined;
   let candidateSha: string | undefined;
   let execute = false;
@@ -5332,6 +5334,10 @@ function parseQaLabEvaIdleRouteArgs(input: string[]): {
     }
     if (arg === "--mcp-bin") {
       mcpBin = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--package-tarball") {
+      packageTarball = readReleaseStatusPath(input, ++index, arg);
       continue;
     }
     if (arg === "--package-version") {
@@ -5356,7 +5362,7 @@ function parseQaLabEvaIdleRouteArgs(input: string[]): {
   if (!mcpBin) throw new Error("qa-lab eva-idle-route requires --mcp-bin");
   if (!packageVersion) throw new Error("qa-lab eva-idle-route requires --package-version");
   if (!candidateSha) throw new Error("qa-lab eva-idle-route requires --candidate-sha");
-  return { evidenceDir, mcpBin, packageVersion, candidateSha, execute, strict };
+  return { evidenceDir, mcpBin, ...(packageTarball ? { packageTarball } : {}), packageVersion, candidateSha, execute, strict };
 }
 
 function parseLooToolName(value: string, flag: string): string {

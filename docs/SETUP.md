@@ -424,15 +424,20 @@ replace the active Eva/Hermes runtime gate. Run it with the exact immutable
 package-owned MCP binary:
 
 ```bash
-lco qa-lab eva-idle-route \
+LCO_CODEX_TRANSPORT=daemon lco qa-lab eva-idle-route \
   --evidence-dir <path> \
   --mcp-bin <exact-package-bin> \
+  --package-tarball <canonical-1.7.0.tgz> \
   --package-version 1.7.0 \
   --candidate-sha 78bd6e7d4e5656d09e76c4c85d01a85b3515b354 \
   [--execute] --strict
 ```
 
-Without `--execute`, the command is non-executing. With `--execute`, it creates
+Without `--execute`, the command is non-executing and does not require a tarball.
+With `--execute`, the explicit tarball must match the pinned SHA-512/SHA-1 and
+the complete installed package-owned path/type/content manifest before MCP
+spawn. The harness source checkout must also be clean and match its Git HEAD;
+the subject MCP binary is then hashed separately. With `--execute`, it creates
 one disposable read-only/no-network task, names it internally, routes by its
 unique public-safe title, performs one opaque dry-run/live delivery pair, and
 then observes the known disposable task through a separate read-only daemon

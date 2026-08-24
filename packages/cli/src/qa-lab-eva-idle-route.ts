@@ -1,9 +1,9 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveHomeDir } from "../../runtime/src/env.js";
 import {
@@ -57,6 +57,13 @@ export type EvaIdleRouteOptions = {
   env?: NodeJS.ProcessEnv;
   repoRoot?: string;
   completionTimeoutMs?: number;
+  packageTarball?: string;
+  /** @internal focused-test seam; production pins the immutable tarball digests. */
+  expectedPackageIntegrity?: string;
+  /** @internal focused-test seam; production pins the immutable tarball shasum. */
+  expectedPackageShasum?: string;
+  /** @internal focused-test seam; production uses the 30-second initialize/list budget. */
+  initializeListTimeoutMs?: number;
   /** @internal focused-test seam; production pins the immutable v1.7.0 MCP binary hash. */
   expectedMcpBinarySha256?: string;
   /** @internal focused-test seam; production uses the daemon setup client. */
@@ -84,7 +91,17 @@ export type EvaIdleRouteReport = {
     mcpBinarySha256: string | null;
     mcpBinaryHashVerified: boolean;
     immutablePrefixVerified: boolean;
+    packageTarballSha512: string | null;
+    packageTarballShasum: string | null;
+    packageManifestSha256: string | null;
+    installedManifestSha256: string | null;
+    manifestMatchVerified: boolean;
   };
+  harness_source_sha256: string | null;
+  harness_source_head_sha256: string | null;
+  harness_source_matches_head: boolean;
+  executing_cli_sha256: string | null;
+  executing_harness_sha256: string | null;
   stages: EvaIdleRouteStage[];
   timings: {
     monotonicElapsedMs: number;
@@ -148,6 +165,20 @@ type PackageIdentity = {
   mcpBinarySha256: string | null;
   mcpBinaryHashVerified: boolean;
   immutablePrefixVerified: boolean;
+  packageTarballSha512: string | null;
+  packageTarballShasum: string | null;
+  packageManifestSha256: string | null;
+  installedManifestSha256: string | null;
+  manifestMatchVerified: boolean;
+};
+
+type HarnessProvenance = {
+  head: string;
+  sourceSha256: string | null;
+  sourceHeadSha256: string | null;
+  sourceMatchesHead: boolean;
+  cliSha256: string | null;
+  harnessSha256: string | null;
 };
 
 type StageResult<T> = { value: T; stage: EvaIdleRouteStage };
@@ -159,6 +190,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
   const startedAt = process.hrtime.bigint();
   const completionBudgetMs = options.completionTimeoutMs ?? DEFAULT_STAGE_TIMEOUTS.completionMs;
   const outerAcceptanceDeadline = execute ? Date.now() + completionBudgetMs : null;
+  const initializeListDeadline = execute ? Date.now() + (options.initializeListTimeoutMs ?? DEFAULT_STAGE_TIMEOUTS.initializeMs) : null;
   const stages: EvaIdleRouteStage[] = [];
   const blockers: string[] = [];
   const warnings: string[] = [];
@@ -167,10 +199,15 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
   const identity = inspectPackageIdentity(
     options.mcpBin,
     options.packageVersion,
+    options.execute ? options.packageTarball : undefined,
     options.expectedMcpBinarySha256 ?? EVA_IDLE_ROUTE_MCP_BINARY_SHA256,
+    options.expectedPackageIntegrity ?? EVA_IDLE_ROUTE_PACKAGE_INTEGRITY,
+    options.expectedPackageShasum ?? EVA_IDLE_ROUTE_PACKAGE_SHASUM,
     blockers
   );
-  const harnessHead = readHarnessHead(options.repoRoot ?? resolveHarnessRepoRoot(), blockers);
+  if (execute && !options.packageTarball) blockers.push("package_tarball_required");
+  const provenance = readHarnessProvenance(options.repoRoot ?? resolveHarnessRepoRoot(), blockers);
+  const harnessHead = provenance.head;
   const title = execute ? createPublicSafeTitle(generatedAt, options.candidateSha) : null;
   let session: PersistentMcpSession | null = null;
   let setupClient: EvaIdleRouteSetupClient | null = null;
@@ -203,7 +240,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
       session = await PersistentMcpSession.start({
         mcpBin: options.mcpBin,
         expectedVersion: options.packageVersion,
-        timeoutMs: DEFAULT_STAGE_TIMEOUTS.initializeMs,
+        timeoutMs: Math.max(1, (initializeListDeadline ?? Date.now() + DEFAULT_STAGE_TIMEOUTS.initializeMs) - Date.now()),
         spawnFactory: options.spawnFactory,
         env: options.env,
         runtimeRoot: runtime,
@@ -215,7 +252,9 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
 
     if (subject.stage.status === "passed" && subject.value) {
       await runStage(stages, "mcp_tools_list", async () => {
-        const result = await subject.value!.request("tools/list", {}, DEFAULT_STAGE_TIMEOUTS.initializeMs);
+        const listDeadline = initializeListDeadline ?? Date.now() + DEFAULT_STAGE_TIMEOUTS.initializeMs;
+        if (Date.now() >= listDeadline) throw new EvaIdleRouteError("mcp_initialize_list_deadline_exceeded");
+        const result = await subject.value!.request("tools/list", {}, Math.max(1, listDeadline - Date.now()));
         const names = extractToolNames(result);
         for (const required of ["lco_codex_control_route", "lco_codex_deliver"]) {
           if (!names.includes(required)) throw new EvaIdleRouteError("required_tool_missing");
@@ -271,13 +310,14 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
               arguments: { target_ref: routeTarget, message: EVA_IDLE_ROUTE_MESSAGE, dry_run: true }
             }, DEFAULT_STAGE_TIMEOUTS.deliverMs);
             const record = requireStructured(result);
-            if (record.live === true || record.status !== "dry_run_ready") throw new EvaIdleRouteError("generic_dry_run_rejected");
+            if (record.live !== false || record.control_sent !== false || record.status !== "dry_run_ready") throw new EvaIdleRouteError("generic_dry_run_rejected");
             if (record.action !== "send") throw new EvaIdleRouteError("idle_send_action_required");
             const approvalId = stringValue(record.approval_audit_id);
             if (!approvalId) throw new EvaIdleRouteError("approval_missing");
             const paramsHash = stringValue(record.params_hash);
             const messageHash = stringValue(record.message_hash);
             if (!paramsHash || !messageHash) throw new EvaIdleRouteError("approval_hash_missing");
+            if (!isCanonicalSha256(paramsHash) || !isCanonicalSha256(messageHash)) throw new EvaIdleRouteError("approval_hash_invalid");
             const targetRef = stringValue(record.target_ref);
             if (!targetRef || targetRef !== routeTarget) throw new EvaIdleRouteError("target_drift");
             return { approvalId, paramsHash, messageHash, targetHash: sha256(targetRef) };
@@ -303,14 +343,17 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
               }
               if (record.action !== "send") throw new EvaIdleRouteError("idle_send_action_required");
               if (stringValue(record.approval_audit_id) !== dry.value!.approvalId) throw new EvaIdleRouteError("approval_binding_mismatch");
+              const paramsHash = stringValue(record.params_hash);
+              const messageHash = stringValue(record.message_hash);
+              if (!paramsHash || !messageHash || !isCanonicalSha256(paramsHash) || !isCanonicalSha256(messageHash)) throw new EvaIdleRouteError("approval_hash_invalid");
               if (stringValue(record.target_ref) !== routeTarget) throw new EvaIdleRouteError("target_drift");
-              if (stringValue(record.params_hash) !== dry.value!.paramsHash || stringValue(record.message_hash) !== dry.value!.messageHash) {
+              if (paramsHash !== dry.value!.paramsHash || messageHash !== dry.value!.messageHash) {
                 throw new EvaIdleRouteError("approval_hash_mismatch");
               }
               return {
                 record,
-                paramsHash: stringValue(record.params_hash)!,
-                messageHash: stringValue(record.message_hash)!
+                paramsHash,
+                messageHash
               };
             }, blockers, "deliver_live_failed");
             if (live.stage.status === "passed") {
@@ -320,10 +363,10 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
               liveMessageHash = live.value!.messageHash;
               liveParamsHash = live.value!.paramsHash;
               const completion = await runStage(stages, "completion_probe", async () => {
-                requireDeadlineOpen(outerAcceptanceDeadline);
                 const deadline = outerAcceptanceDeadline!;
+                if (Date.now() >= deadline) throw new EvaIdleRouteError("completion_deadline_exceeded");
                 while (Date.now() < deadline) {
-                  if (await setupClient!.completionObserved(setup.value!.threadId)) return true;
+                  if (await readCompletionWithinDeadline(setupClient!, setup.value!.threadId, deadline)) return true;
                   await new Promise((resolve) => setTimeout(resolve, Math.min(100, Math.max(1, deadline - Date.now()))));
                 }
                 throw new EvaIdleRouteError("completion_deadline_exceeded");
@@ -374,6 +417,11 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
     generatedAt,
     harness_repo_head: harnessHead,
     harness_command_version: readHarnessCommandVersion(),
+    harness_source_sha256: provenance.sourceSha256,
+    harness_source_head_sha256: provenance.sourceHeadSha256,
+    harness_source_matches_head: provenance.sourceMatchesHead,
+    executing_cli_sha256: provenance.cliSha256,
+    executing_harness_sha256: provenance.harnessSha256,
     candidateSha: options.candidateSha,
     publicSafeTitle: title,
     subject: identity,
@@ -425,7 +473,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
     warnings: uniqueStrings(warnings),
     proofBoundary: "This public-safe operator-only candidate harness proves only the named disposable Eva idle route, opaque dry-run/live acceptance, and bounded read-only completion marker when those stages pass. It does not prove Eva runtime safety, Hermes handler/lock/dispatch health, release publication, customer readiness, fleet readiness, or any live action beyond this one disposable task.",
     nextSafeCommands: [
-      `lco qa-lab eva-idle-route --evidence-dir <path> --mcp-bin <exact-package-bin> --package-version ${options.packageVersion} --candidate-sha ${options.candidateSha} [--execute] [--strict]`
+      `LCO_CODEX_TRANSPORT=daemon lco qa-lab eva-idle-route --evidence-dir <path> --mcp-bin <exact-package-bin> --package-tarball <canonical-1.7.0.tgz> --package-version ${options.packageVersion} --candidate-sha ${options.candidateSha} [--execute] [--strict]`
     ]
   };
   writeEvaIdleRouteReport(report, options.evidenceDir);
@@ -724,19 +772,43 @@ function isolatedSubjectEnv(source: NodeJS.ProcessEnv, runtimeRoot: string | nul
   return env;
 }
 
-function inspectPackageIdentity(mcpBin: string, expectedVersion: string, expectedBinarySha256: string, blockers: string[]): PackageIdentity {
+function inspectPackageIdentity(mcpBin: string, expectedVersion: string, packageTarball: string | undefined, expectedBinarySha256: string, expectedIntegrity: string, expectedShasum: string, blockers: string[]): PackageIdentity {
   let mcpBinarySha256: string | null = null;
   let packageRoot: string | null = null;
   let mcpBinaryHashVerified = false;
   let immutablePrefixVerified = false;
+  let packageTarballSha512: string | null = null;
+  let packageTarballShasum: string | null = null;
+  let packageManifestSha256: string | null = null;
+  let installedManifestSha256: string | null = null;
+  let manifestMatchVerified = false;
   try {
-    const stat = statSync(mcpBin);
-    if (!stat.isFile()) throw new EvaIdleRouteError("mcp_binary_not_regular");
+    if (!lstatSync(mcpBin).isFile()) throw new EvaIdleRouteError("mcp_binary_not_regular");
     const resolvedBin = realpathSync(mcpBin);
     mcpBinarySha256 = sha256(readFileSync(resolvedBin));
     mcpBinaryHashVerified = mcpBinarySha256 === expectedBinarySha256;
     packageRoot = findSupportedPackageRoot(dirname(resolvedBin));
-    immutablePrefixVerified = resolvedBin.includes(EVA_IDLE_ROUTE_PREFIX_MARKER);
+    immutablePrefixVerified = Boolean(packageRoot && pathInside(packageRoot, resolvedBin) && resolvedBin.includes(EVA_IDLE_ROUTE_PREFIX_MARKER));
+    if (packageTarball) {
+      const tarball = verifyPackageTarball(packageTarball, expectedIntegrity, expectedShasum, blockers);
+      try {
+        packageTarballSha512 = tarball.sha512;
+        packageTarballShasum = tarball.shasum;
+        if (packageRoot && tarball.root) {
+          const installed = readPackageManifest(packageRoot);
+          const packaged = readPackageManifest(tarball.root);
+          installedManifestSha256 = installed.digest;
+          packageManifestSha256 = packaged.digest;
+          manifestMatchVerified = comparePackageManifests(installed.entries, packaged.entries);
+          if (!manifestMatchVerified) blockers.push("package_manifest_mismatch");
+          const relativeBin = relativePackagePath(packageRoot, resolvedBin);
+          if (!relativeBin || !packaged.entries.has(relativeBin) || packaged.entries.get(relativeBin)?.type !== "file") blockers.push("mcp_binary_not_in_package_manifest");
+        }
+        if (!manifestMatchVerified) immutablePrefixVerified = false;
+      } finally {
+        rmSync(dirname(tarball.root), { recursive: true, force: true });
+      }
+    }
   } catch (error) {
     blockers.push(sanitizeErrorClass(error) || "mcp_binary_unavailable");
   }
@@ -747,30 +819,128 @@ function inspectPackageIdentity(mcpBin: string, expectedVersion: string, expecte
   if (!immutablePrefixVerified) blockers.push("subject_immutable_prefix_mismatch");
   if (packageName !== CANONICAL_PACKAGE_NAME) blockers.push("subject_package_name_mismatch");
   if (packageVersion !== expectedVersion) blockers.push("subject_package_version_mismatch");
-  const isRelease = packageName === CANONICAL_PACKAGE_NAME && packageVersion === EVA_IDLE_ROUTE_PACKAGE_VERSION;
+  const isRelease = packageName === CANONICAL_PACKAGE_NAME && packageVersion === EVA_IDLE_ROUTE_PACKAGE_VERSION && manifestMatchVerified;
   return {
     packageName,
     packageVersion,
-    packageIntegrity: isRelease ? EVA_IDLE_ROUTE_PACKAGE_INTEGRITY : null,
-    packageShasum: isRelease ? EVA_IDLE_ROUTE_PACKAGE_SHASUM : null,
+    packageIntegrity: isRelease ? packageTarballSha512 : null,
+    packageShasum: isRelease ? packageTarballShasum : null,
     mcpBinarySha256,
     mcpBinaryHashVerified,
-    immutablePrefixVerified
+    immutablePrefixVerified,
+    packageTarballSha512,
+    packageTarballShasum,
+    packageManifestSha256,
+    installedManifestSha256,
+    manifestMatchVerified
   };
 }
 
-function readHarnessHead(repoRoot: string, blockers: string[]): string {
+type PackageManifestEntry = { type: "file" | "directory"; sha256: string | null };
+
+function verifyPackageTarball(path: string, expectedIntegrity: string, expectedShasum: string, blockers: string[]): { sha512: string; shasum: string; root: string } {
+  if (path.startsWith("-")) throw new EvaIdleRouteError("package_tarball_path_invalid");
+  if (!lstatSync(path).isFile()) throw new EvaIdleRouteError("package_tarball_not_regular");
+  const bytes = readFileSync(path);
+  const sha512 = `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
+  const shasum = createHash("sha1").update(bytes).digest("hex");
+  if (sha512 !== expectedIntegrity) blockers.push("package_tarball_integrity_mismatch");
+  if (shasum !== expectedShasum) blockers.push("package_tarball_shasum_mismatch");
+  if (sha512 !== expectedIntegrity || shasum !== expectedShasum) throw new EvaIdleRouteError("package_tarball_digest_mismatch");
+  const listing = execFileSync("tar", ["-tzf", path], { encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "ignore"] }).split(/\r?\n/).filter(Boolean);
+  if (!listing.length || listing.some((entry) => !/^package(?:\/|$)/.test(entry) || entry.startsWith("/") || entry.split("/").includes(".."))) throw new EvaIdleRouteError("package_tarball_layout_invalid");
+  const detailed = execFileSync("tar", ["-tvzf", path], { encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "ignore"] }).split(/\r?\n/).filter(Boolean);
+  if (detailed.some((entry) => !/^[\-d]/.test(entry))) throw new EvaIdleRouteError("package_tarball_entry_type_invalid");
+  const root = mkdtempSync(join(tmpdir(), "lco-eva-idle-package-"));
+  try {
+    execFileSync("tar", ["-xzf", path, "-C", root], { timeout: 10_000, stdio: ["ignore", "ignore", "ignore"] });
+    const packageRoot = join(root, "package");
+    if (!lstatSync(packageRoot).isDirectory()) throw new EvaIdleRouteError("package_tarball_root_missing");
+    return { sha512, shasum, root: packageRoot };
+  } catch (error) {
+    rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function readPackageManifest(root: string): { digest: string; entries: Map<string, PackageManifestEntry> } {
+  const entries = new Map<string, PackageManifestEntry>();
+  const walk = (current: string, relative = "") => {
+    for (const name of readdirNames(current)) {
+      const child = join(current, name);
+      const childRelative = relative ? `${relative}/${name}` : name;
+      const stat = lstatSync(child);
+      if (stat.isSymbolicLink()) throw new EvaIdleRouteError("package_manifest_symlink");
+      if (stat.isDirectory()) {
+        entries.set(childRelative, { type: "directory", sha256: null });
+        walk(child, childRelative);
+      } else if (stat.isFile()) entries.set(childRelative, { type: "file", sha256: sha256(readFileSync(child)) });
+      else throw new EvaIdleRouteError("package_manifest_nonregular");
+    }
+  };
+  walk(root);
+  const canonical = [...entries].sort(([a], [b]) => a.localeCompare(b)).map(([path, value]) => [path, value.type, value.sha256]);
+  return { digest: sha256(JSON.stringify(canonical)), entries };
+}
+
+function readdirNames(path: string): string[] {
+  return readdirSync(path, { withFileTypes: true }).map((entry) => entry.name).sort();
+}
+
+function comparePackageManifests(left: Map<string, PackageManifestEntry>, right: Map<string, PackageManifestEntry>): boolean {
+  if (left.size !== right.size) return false;
+  for (const [path, value] of left) if (JSON.stringify(value) !== JSON.stringify(right.get(path))) return false;
+  return true;
+}
+
+function relativePackagePath(root: string, path: string): string | null {
+  const value = relative(root, path);
+  return pathInside(root, path) ? value : null;
+}
+
+function pathInside(root: string, path: string): boolean {
+  const candidate = relative(resolve(root), resolve(path));
+  return candidate.length > 0 && !candidate.startsWith("..") && !isAbsolute(candidate);
+}
+
+function readHarnessProvenance(repoRoot: string, blockers: string[]): HarnessProvenance {
+  let head = "unknown";
+  let sourceSha256: string | null = null;
+  let sourceHeadSha256: string | null = null;
+  let sourceMatchesHead = false;
+  let cliSha256: string | null = null;
+  let harnessSha256: string | null = null;
   try {
     const resolvedRoot = realpathSync(repoRoot);
     const topLevel = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: resolvedRoot, encoding: "utf8", timeout: 5_000, stdio: ["ignore", "pipe", "ignore"] }).trim();
     if (realpathSync(topLevel) !== resolvedRoot) throw new EvaIdleRouteError("harness_repo_root_mismatch");
-    const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8", timeout: 5_000 }).trim();
-    if (/^[0-9a-f]{40}$/.test(head)) return head;
-  } catch {
-    // Public-safe fallback below.
+    head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: resolvedRoot, encoding: "utf8", timeout: 5_000, stdio: ["ignore", "pipe", "ignore"] }).trim();
+    if (!/^[0-9a-f]{40}$/.test(head)) throw new EvaIdleRouteError("harness_repo_head_unavailable");
+    const dirty = execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: resolvedRoot, encoding: "utf8", timeout: 5_000, stdio: ["ignore", "pipe", "ignore"] }).trim();
+    if (dirty) blockers.push("harness_checkout_dirty");
+    const relativeSource = "packages/cli/src/qa-lab-eva-idle-route.ts";
+    execFileSync("git", ["ls-files", "--error-unmatch", relativeSource], { cwd: resolvedRoot, encoding: "utf8", timeout: 5_000, stdio: ["ignore", "pipe", "ignore"] });
+    const sourcePath = join(resolvedRoot, relativeSource);
+    sourceSha256 = sha256(readFileSync(sourcePath));
+    sourceHeadSha256 = sha256(execFileSync("git", ["show", `HEAD:${relativeSource}`], { cwd: resolvedRoot, timeout: 5_000, stdio: ["ignore", "pipe", "ignore"] }));
+    sourceMatchesHead = sourceSha256 === sourceHeadSha256;
+    if (!sourceMatchesHead) blockers.push("harness_source_head_mismatch");
+  } catch (error) {
+    if (head === "unknown") blockers.push(sanitizeErrorClass(error) || "harness_repo_head_unavailable");
   }
-  blockers.push("harness_repo_head_unavailable");
-  return "unknown";
+  harnessSha256 = hashRegularFile(fileURLToPath(import.meta.url));
+  cliSha256 = process.argv[1] ? hashRegularFile(process.argv[1]) : null;
+  if (!harnessSha256 || !cliSha256) blockers.push("harness_build_hash_unavailable");
+  return { head, sourceSha256, sourceHeadSha256, sourceMatchesHead, cliSha256, harnessSha256 };
+}
+
+function hashRegularFile(path: string): string | null {
+  try {
+    if (!lstatSync(path).isFile()) return null;
+    return sha256(readFileSync(path));
+  } catch {
+    return null;
+  }
 }
 
 function resolveHarnessRepoRoot(): string {
@@ -871,8 +1041,30 @@ function requireDeadlineOpen(deadline: number | null): void {
   if (deadline !== null && Date.now() >= deadline) throw new EvaIdleRouteError("outer_deadline_exceeded");
 }
 
+async function readCompletionWithinDeadline(client: EvaIdleRouteSetupClient, threadId: string, deadline: number): Promise<boolean> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new EvaIdleRouteError("completion_deadline_exceeded");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      client.completionObserved(threadId),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new EvaIdleRouteError("completion_deadline_exceeded")), remaining);
+      })
+    ]);
+    if (Date.now() >= deadline) throw new EvaIdleRouteError("completion_deadline_exceeded");
+    return result;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function isOpaqueTarget(value: string): boolean {
   return /^[A-Za-z0-9._:-]{8,160}$/.test(value) && !value.includes("/") && !value.includes("\\");
+}
+
+function isCanonicalSha256(value: string): boolean {
+  return /^[0-9a-f]{64}$/.test(value);
 }
 
 function sha256(value: string | Buffer): string {
