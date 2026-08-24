@@ -53,6 +53,7 @@ Use the narrowest claim tier that the evidence proves:
 | `beta-hermes-mcp` | Hermes can use the required LCO tools over stdio MCP | candidate package smoke, Hermes smoke/readiness, notification silence, structured results, existing-index default search, latency |
 | `beta-agent-gateway` | OpenClaw agent can use Codex recall tools | installed gateway dogfood, agent skill, bounded expansion, dry-run control |
 | `beta-live-send` | one approved live Codex send is proven | matching dry-run approval id, live send marker, audit tail, post-action refresh |
+| `eva-idle-route-candidate` | one disposable opaque idle route is accepted and observed read-only from a source-head harness | `lco.evaIdleRouteDeliver.v1`, exact package/binary identity, one MCP session, matching dry/live hashes, accepted/completion split, sanitized receipt |
 | `rc-control-matrix` | live control action matrix is proven | send, resume, steer, and interrupt each pass on disposable threads |
 | `1.0` | Codex-first local orchestration is generally ready | every release checks plus fresh npm, agent dogfood, docs truth, scorecards, CI, and privacy gates |
 
@@ -135,6 +136,28 @@ For a stable/general release, the release must additionally prove:
 If resume, steer, or interrupt have not passed live proof on disposable threads,
 the stable/general release claim must exclude broad live control and say only the
 proven live send path is available.
+
+## Eva Idle-Route Candidate Boundary
+
+For issue #808, run the source-head operator smoke against the exact immutable
+package-owned MCP binary:
+
+```bash
+lco qa-lab eva-idle-route --evidence-dir <path> \
+  --mcp-bin <exact-package-bin> --package-version 1.7.0 \
+  --candidate-sha 78bd6e7d4e5656d09e76c4c85d01a85b3515b354 [--execute] --strict
+```
+
+The ladder is initialize/list (30s), route (15s), dry-run (15s), live deliver
+(15s), and completion/overall idle acceptance (120s). Hermes has a separate
+300s per-tool timeout. The default command performs no live action; `--execute`
+permits exactly one disposable live idle send. Require one persistent MCP
+session, an opaque target, a single-use matching approval, a separate
+read-only completion probe, and a sanitized `lco.evaIdleRouteDeliver.v1`
+receipt. Source-head harness identity and exact package/binary identity are
+separate proof fields. This candidate tier does not alter Eva's active allowlist
+or prove Eva runtime, Telegram, customer, fleet, publication, or release
+readiness.
 
 ## npm Dist-Tag Boundary
 

@@ -26,6 +26,7 @@ test("canonical CLI help advertises lco while retaining loo as an executable ali
   assert.match(result.stdout, /lco release ga-smoke .*--now iso/);
   assert.match(result.stdout, /lco qa-lab desktop-contract --evidence-dir path/);
   assert.match(result.stdout, /lco qa-lab privacy-scan --evidence-dir path/);
+  assert.match(result.stdout, /lco qa-lab eva-idle-route --evidence-dir path/);
   assert.match(result.stdout, /lco qa-lab judge --run path --rubric-version real-product-v1/);
   assert.match(result.stdout, /lco qa-lab adversarial-review --run path --lenses safety,retrieval,packaging,claims,agent-usability/);
   assert.doesNotMatch(result.stdout, /^  loo /m);
@@ -726,6 +727,19 @@ test("loo qa-lab privacy-scan --help exposes public-safe evidence scan boundary"
   assert.match(result.stdout, /raw transcripts/i);
   assert.match(result.stdout, /secret-like/i);
   assert.match(result.stdout, /does not read raw Codex stores/i);
+  assert.equal(result.stderr.trim(), "");
+});
+
+test("lco qa-lab eva-idle-route --help exposes the bounded candidate-only ladder", () => {
+  const result = runLoo(["qa-lab", "eva-idle-route", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  lco qa-lab eva-idle-route/);
+  assert.match(result.stdout, /default\s+non-executing/i);
+  assert.match(result.stdout, /exactly one idle send/i);
+  assert.match(result.stdout, /one persistent MCP session/i);
+  assert.match(result.stdout, /separately observes the known disposable task read-only/i);
+  assert.match(result.stdout, /does not prove Eva runtime safety/i);
   assert.equal(result.stderr.trim(), "");
 });
 

@@ -96,6 +96,12 @@ Current target:
   Codex-owned daemon, preserve approval and opaque-target checks, keep Desktop
   tasks on Hermes Computer Use, and retain OpenClaw as a separate compatibility
   path.
+- Issue #808's `lco qa-lab eva-idle-route` is a candidate smoke for one
+  disposable idle route. It is source-head harness evidence against an exact
+  immutable package binary, not active Eva allowlist or runtime proof. Keep its
+  stage ladder explicit: initialize/list 30s, route 15s, dry-run 15s, live
+  deliver 15s, and completion/outer idle acceptance 120s; Hermes retains a
+  separate 300s per-tool timeout.
 - Treat `lco qa-lab tool-coverage --coverage-policy full --strict` as the
   full-surface GA gate over the canonical tool surface. Missing product evidence
   is a blocker unless release copy explicitly excludes that tool or workflow.
@@ -243,7 +249,8 @@ Expected product-management workflows:
   revalidates ownership/state/turn/approval. Desktop tasks stay on Hermes
   Computer Use with exact target and composer readback; OpenClaw loopback/stdio
   compatibility is separate from Eva runtime/customer proof.
-- `packages/cli` is the operator and evidence surface for `onboard status`, `doctor`, `index`, `search`, `grep`, `describe`, `expand`, `desktop`, and release commands.
+- `packages/cli` is the operator and evidence surface for `onboard status`, `doctor`, `index`, `search`, `grep`, `describe`, `expand`, `desktop`, the
+  operator-only `qa-lab eva-idle-route` candidate smoke, and release commands.
 - `packages/openclaw-plugin` is the OpenClaw package and manifest layer.
 - `skills/` contains the packaged agent-facing playbook for safe staged recall and approval-gated dry-run workflows.
 - `docs/` explains install, demo workflow, privacy, safe summaries, release proof, the beta release runbook, and claim boundaries.
@@ -408,6 +415,13 @@ Release candidates follow [docs/BETA_RELEASE_RUNBOOK.md](docs/BETA_RELEASE_RUNBO
 Stable 1.7.0 product statement:
 
 > Coordinate local Codex work through OpenClaw/MCP with bounded recall and session diffs, audited review-then-drive dry-runs, the four-row `lco.qaLab.liveControlMatrix.v1` send/resume/steer/interrupt matrix on approved disposable QA targets, and read-only LCM prepared state; Claude targeting remains dry-run only.
+
+The issue #808 idle-route receipt (`lco.evaIdleRouteDeliver.v1`) narrows the
+current diagnostic claim further: one source-head harness can bind the exact
+package/binary identity, route an opaque disposable target, distinguish
+transport acceptance from read-only completion, and stop at a 120s outer
+boundary. It does not extend the active Eva/Hermes sixteen-tool allowlist,
+prove runtime safety, or turn source proof into release/customer proof.
 
 Future roadmap candidates:
 
