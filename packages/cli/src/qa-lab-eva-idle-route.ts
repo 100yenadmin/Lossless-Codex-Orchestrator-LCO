@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -172,6 +172,8 @@ type PackageIdentity = {
   manifestMatchVerified: boolean;
 };
 
+type PackageInspection = { identity: PackageIdentity; snapshotOwnerRoot: string | null; snapshotMcpBin: string | null };
+
 type HarnessProvenance = {
   head: string;
   sourceSha256: string | null;
@@ -196,7 +198,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
   const warnings: string[] = [];
   if (options.packageVersion !== EVA_IDLE_ROUTE_PACKAGE_VERSION) blockers.push("candidate_package_version_unsupported");
   if (options.candidateSha !== EVA_IDLE_ROUTE_CANDIDATE_SHA) blockers.push("candidate_sha_mismatch");
-  const identity = inspectPackageIdentity(
+  const inspection = inspectPackageIdentity(
     options.mcpBin,
     options.packageVersion,
     options.execute ? options.packageTarball : undefined,
@@ -205,6 +207,9 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
     options.expectedPackageShasum ?? EVA_IDLE_ROUTE_PACKAGE_SHASUM,
     blockers
   );
+  const identity = inspection.identity;
+  let snapshotOwnerRoot = inspection.snapshotOwnerRoot;
+  const snapshotMcpBin = inspection.snapshotMcpBin;
   if (execute && !options.packageTarball) blockers.push("package_tarball_required");
   const provenance = readHarnessProvenance(options.repoRoot ?? resolveHarnessRepoRoot(), blockers);
   const harnessHead = provenance.head;
@@ -230,6 +235,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
 
   try {
     if (blockers.length > 0) {
+      if (snapshotOwnerRoot) rmSync(snapshotOwnerRoot, { recursive: true, force: true });
       stages.push({ name: "identity_preflight", status: "blocked", elapsedMs: 0, errorClass: blockers[0] ?? "identity_preflight_failed" });
       throw new EvaIdleRouteError("identity_preflight_failed");
     }
@@ -238,7 +244,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
       runtimeRoot = runtime;
       audit = execute ? createAuditBoundary() : emptyAuditBoundary();
       session = await PersistentMcpSession.start({
-        mcpBin: options.mcpBin,
+        mcpBin: snapshotMcpBin ?? options.mcpBin,
         expectedVersion: options.packageVersion,
         timeoutMs: Math.max(1, (initializeListDeadline ?? Date.now() + DEFAULT_STAGE_TIMEOUTS.initializeMs) - Date.now()),
         spawnFactory: options.spawnFactory,
@@ -395,6 +401,13 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
         if (!(await finalSession.close())) blockers.push("mcp_process_exit_unconfirmed");
       } catch {
         blockers.push("mcp_process_exit_unconfirmed");
+      }
+    }
+    if (snapshotOwnerRoot) {
+      if (blockers.includes("mcp_process_exit_unconfirmed")) blockers.push("package_snapshot_retained");
+      else {
+        try { rmSync(snapshotOwnerRoot, { recursive: true, force: true }); snapshotOwnerRoot = null; }
+        catch { blockers.push("package_snapshot_cleanup_failed"); }
       }
     }
     if (runtimeRoot) {
@@ -772,9 +785,12 @@ function isolatedSubjectEnv(source: NodeJS.ProcessEnv, runtimeRoot: string | nul
   return env;
 }
 
-function inspectPackageIdentity(mcpBin: string, expectedVersion: string, packageTarball: string | undefined, expectedBinarySha256: string, expectedIntegrity: string, expectedShasum: string, blockers: string[]): PackageIdentity {
+function inspectPackageIdentity(mcpBin: string, expectedVersion: string, packageTarball: string | undefined, expectedBinarySha256: string, expectedIntegrity: string, expectedShasum: string, blockers: string[]): PackageInspection {
   let mcpBinarySha256: string | null = null;
   let packageRoot: string | null = null;
+  let snapshotOwnerRoot: string | null = null;
+  let snapshotMcpBin: string | null = null;
+  let snapshot: VerifiedPackageSnapshot | null = null;
   let mcpBinaryHashVerified = false;
   let immutablePrefixVerified = false;
   let packageTarballSha512: string | null = null;
@@ -790,26 +806,33 @@ function inspectPackageIdentity(mcpBin: string, expectedVersion: string, package
     packageRoot = findSupportedPackageRoot(dirname(resolvedBin));
     immutablePrefixVerified = Boolean(packageRoot && pathInside(packageRoot, resolvedBin) && resolvedBin.includes(EVA_IDLE_ROUTE_PREFIX_MARKER));
     if (packageTarball) {
-      const tarball = verifyPackageTarball(packageTarball, expectedIntegrity, expectedShasum, blockers);
-      try {
-        packageTarballSha512 = tarball.sha512;
-        packageTarballShasum = tarball.shasum;
-        if (packageRoot && tarball.root) {
+      snapshot = verifyPackageTarball(packageTarball, expectedIntegrity, expectedShasum, blockers);
+      snapshotOwnerRoot = snapshot.ownerRoot;
+      packageTarballSha512 = snapshot.sha512;
+      packageTarballShasum = snapshot.shasum;
+      if (packageRoot) {
           const installed = readPackageManifest(packageRoot);
-          const packaged = readPackageManifest(tarball.root);
+          const packaged = readPackageManifest(snapshot.root);
           installedManifestSha256 = installed.digest;
           packageManifestSha256 = packaged.digest;
           manifestMatchVerified = comparePackageManifests(installed.entries, packaged.entries);
           if (!manifestMatchVerified) blockers.push("package_manifest_mismatch");
           const relativeBin = relativePackagePath(packageRoot, resolvedBin);
           if (!relativeBin || !packaged.entries.has(relativeBin) || packaged.entries.get(relativeBin)?.type !== "file") blockers.push("mcp_binary_not_in_package_manifest");
+          if (manifestMatchVerified && relativeBin) {
+            snapshotMcpBin = join(snapshot.root, relativeBin);
+            mcpBinarySha256 = sha256(readFileSync(snapshotMcpBin));
+            mcpBinaryHashVerified = mcpBinarySha256 === expectedBinarySha256;
+            if (!mcpBinaryHashVerified) blockers.push("subject_mcp_binary_hash_mismatch");
+            linkSnapshotDependencies(snapshot.root, packageRoot, blockers);
+          }
         }
         if (!manifestMatchVerified) immutablePrefixVerified = false;
-      } finally {
-        rmSync(dirname(tarball.root), { recursive: true, force: true });
       }
-    }
   } catch (error) {
+    if (snapshot) rmSync(snapshot.ownerRoot, { recursive: true, force: true });
+    snapshotOwnerRoot = null;
+    snapshotMcpBin = null;
     blockers.push(sanitizeErrorClass(error) || "mcp_binary_unavailable");
   }
   const packageVersion = packageRoot ? readPackageVersionFromRoots([packageRoot]) : null;
@@ -820,7 +843,7 @@ function inspectPackageIdentity(mcpBin: string, expectedVersion: string, package
   if (packageName !== CANONICAL_PACKAGE_NAME) blockers.push("subject_package_name_mismatch");
   if (packageVersion !== expectedVersion) blockers.push("subject_package_version_mismatch");
   const isRelease = packageName === CANONICAL_PACKAGE_NAME && packageVersion === EVA_IDLE_ROUTE_PACKAGE_VERSION && manifestMatchVerified;
-  return {
+  return { identity: {
     packageName,
     packageVersion,
     packageIntegrity: isRelease ? packageTarballSha512 : null,
@@ -833,12 +856,13 @@ function inspectPackageIdentity(mcpBin: string, expectedVersion: string, package
     packageManifestSha256,
     installedManifestSha256,
     manifestMatchVerified
-  };
+  }, snapshotOwnerRoot, snapshotMcpBin };
 }
 
 type PackageManifestEntry = { type: "file" | "directory"; sha256: string | null };
+type VerifiedPackageSnapshot = { sha512: string; shasum: string; ownerRoot: string; root: string };
 
-function verifyPackageTarball(path: string, expectedIntegrity: string, expectedShasum: string, blockers: string[]): { sha512: string; shasum: string; root: string } {
+function verifyPackageTarball(path: string, expectedIntegrity: string, expectedShasum: string, blockers: string[]): VerifiedPackageSnapshot {
   if (path.startsWith("-")) throw new EvaIdleRouteError("package_tarball_path_invalid");
   if (!lstatSync(path).isFile()) throw new EvaIdleRouteError("package_tarball_not_regular");
   const bytes = readFileSync(path);
@@ -847,19 +871,48 @@ function verifyPackageTarball(path: string, expectedIntegrity: string, expectedS
   if (sha512 !== expectedIntegrity) blockers.push("package_tarball_integrity_mismatch");
   if (shasum !== expectedShasum) blockers.push("package_tarball_shasum_mismatch");
   if (sha512 !== expectedIntegrity || shasum !== expectedShasum) throw new EvaIdleRouteError("package_tarball_digest_mismatch");
-  const listing = execFileSync("tar", ["-tzf", path], { encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "ignore"] }).split(/\r?\n/).filter(Boolean);
-  if (!listing.length || listing.some((entry) => !/^package(?:\/|$)/.test(entry) || entry.startsWith("/") || entry.split("/").includes(".."))) throw new EvaIdleRouteError("package_tarball_layout_invalid");
-  const detailed = execFileSync("tar", ["-tvzf", path], { encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "ignore"] }).split(/\r?\n/).filter(Boolean);
-  if (detailed.some((entry) => !/^[\-d]/.test(entry))) throw new EvaIdleRouteError("package_tarball_entry_type_invalid");
-  const root = mkdtempSync(join(tmpdir(), "lco-eva-idle-package-"));
+  const ownerRoot = mkdtempSync(join(tmpdir(), "lco-eva-idle-package-"));
+  chmodSync(ownerRoot, 0o700);
+  const archive = join(ownerRoot, "package.tgz");
+  writeFileSync(archive, bytes, { mode: 0o600, flag: "wx" });
   try {
-    execFileSync("tar", ["-xzf", path, "-C", root], { timeout: 10_000, stdio: ["ignore", "ignore", "ignore"] });
-    const packageRoot = join(root, "package");
+    const listing = execFileSync("tar", ["-tzf", archive], { encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "ignore"] }).split(/\r?\n/).filter(Boolean);
+    if (!listing.length || listing.some((entry) => !/^package(?:\/|$)/.test(entry) || entry.startsWith("/") || entry.split("/").includes(".."))) throw new EvaIdleRouteError("package_tarball_layout_invalid");
+    const detailed = execFileSync("tar", ["-tvzf", archive], { encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "ignore"] }).split(/\r?\n/).filter(Boolean);
+    if (detailed.some((entry) => !/^[\-d]/.test(entry))) throw new EvaIdleRouteError("package_tarball_entry_type_invalid");
+    const extractRoot = join(ownerRoot, "extract");
+    mkdirSync(extractRoot, { mode: 0o700 });
+    execFileSync("tar", ["-xzf", archive, "-C", extractRoot], { timeout: 10_000, stdio: ["ignore", "ignore", "ignore"] });
+    const packageRoot = join(extractRoot, "package");
     if (!lstatSync(packageRoot).isDirectory()) throw new EvaIdleRouteError("package_tarball_root_missing");
-    return { sha512, shasum, root: packageRoot };
+    return { sha512, shasum, ownerRoot, root: packageRoot };
   } catch (error) {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(ownerRoot, { recursive: true, force: true });
     throw error;
+  }
+}
+
+function linkSnapshotDependencies(snapshotRoot: string, installedRoot: string, blockers: string[]): void {
+  let dependencies: Record<string, unknown> = {};
+  try { dependencies = JSON.parse(readFileSync(join(snapshotRoot, "package.json"), "utf8")).dependencies ?? {}; }
+  catch { blockers.push("package_dependency_manifest_invalid"); return; }
+  const destination = join(snapshotRoot, "node_modules");
+  for (const name of Object.keys(dependencies)) {
+    if (name.startsWith("/") || name.split("/").includes("..")) { blockers.push("package_dependency_name_invalid"); continue; }
+    const source = findInstalledDependency(installedRoot, name);
+    if (!source) { blockers.push("package_dependency_unavailable"); continue; }
+    const link = join(destination, name);
+    mkdirSync(dirname(link), { recursive: true, mode: 0o700 });
+    symlinkSync(source, link, "junction");
+  }
+}
+
+function findInstalledDependency(root: string, name: string): string | null {
+  for (let current = root;; current = dirname(current)) {
+    const candidate = join(current, "node_modules", name);
+    try { if (lstatSync(candidate).isDirectory()) return realpathSync(candidate); } catch { /* continue upward */ }
+    const parent = dirname(current);
+    if (parent === current) return null;
   }
 }
 

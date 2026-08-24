@@ -144,7 +144,8 @@ package-owned MCP binary:
 
 ```bash
 lco qa-lab eva-idle-route --evidence-dir <path> \
-  --mcp-bin <exact-package-bin> --package-version 1.7.0 \
+  --mcp-bin <exact-package-bin> --package-tarball <canonical-1.7.0.tgz> \
+  --package-version 1.7.0 \
   --candidate-sha 78bd6e7d4e5656d09e76c4c85d01a85b3515b354 [--execute] --strict
 ```
 
