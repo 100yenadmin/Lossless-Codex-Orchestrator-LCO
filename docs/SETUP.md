@@ -445,7 +445,8 @@ The bounded ladder is: MCP initialize/list (30s), route (15s), deliver dry-run
 Hermes has a separate 300s per-tool timeout, so an outer 120s timeout must not
 be interpreted as a Hermes handler or runtime failure. The receipt is
 `lco.evaIdleRouteDeliver.v1` and records sanitized statuses, timings, hashes,
-and proof boundaries only. Source-head harness proof and package/binary identity
+matching dry/live target, message, and parameter hash pairs, the last observed
+stage marker, and proof boundaries only. Source-head harness proof and package/binary identity
 proof remain separate; neither proves active Eva allowlist/runtime or customer
 readiness.
 

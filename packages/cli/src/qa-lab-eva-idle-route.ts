@@ -19,7 +19,8 @@ export const EVA_IDLE_ROUTE_CANDIDATE_SHA = "78bd6e7d4e5656d09e76c4c85d01a85b351
 export const EVA_IDLE_ROUTE_PACKAGE_INTEGRITY = "sha512-0sZShBTX/+332BEavQ46oHcoUygXwfus+NPa/B37z/6OUcMb/3Q8n7QrqOxIq1EIQmTmtgusZ35car8Spp7Evw==";
 export const EVA_IDLE_ROUTE_PACKAGE_SHASUM = "9b4199489324d2fb21e6a44b5feb7eadd8000817";
 export const EVA_IDLE_ROUTE_PREFIX_MARKER = `lossless-codex-orchestrator-${EVA_IDLE_ROUTE_PACKAGE_VERSION}-${EVA_IDLE_ROUTE_PACKAGE_SHASUM.slice(0, 12)}`;
-export const EVA_IDLE_ROUTE_MESSAGE = "Reply with exactly: LCO_IDLE_OK";
+export const EVA_IDLE_ROUTE_MCP_BINARY_SHA256 = "9479937d64a5094ea72a908d28d2d2c041a602cf583b1021eeb334ecd041855c";
+export const EVA_IDLE_ROUTE_MESSAGE = "Return only the token formed by concatenating these two strings: LCO_IDLE_ and OK";
 
 const DEFAULT_STAGE_TIMEOUTS = {
   initializeMs: 30_000,
@@ -55,6 +56,8 @@ export type EvaIdleRouteOptions = {
   env?: NodeJS.ProcessEnv;
   repoRoot?: string;
   completionTimeoutMs?: number;
+  /** @internal focused-test seam; production pins the immutable v1.7.0 MCP binary hash. */
+  expectedMcpBinarySha256?: string;
   /** @internal focused-test seam; production uses the daemon setup client. */
   setupClientFactory?: () => Promise<EvaIdleRouteSetupClient>;
   /** @internal focused-test seam; production uses child_process.spawn. */
@@ -78,6 +81,7 @@ export type EvaIdleRouteReport = {
     packageIntegrity: string | null;
     packageShasum: string | null;
     mcpBinarySha256: string | null;
+    mcpBinaryHashVerified: boolean;
     immutablePrefixVerified: boolean;
   };
   stages: EvaIdleRouteStage[];
@@ -98,6 +102,12 @@ export type EvaIdleRouteReport = {
     liveSha256: string | null;
     equal: boolean;
   };
+  parameterHashes: {
+    dryRunSha256: string | null;
+    liveSha256: string | null;
+    equal: boolean;
+  };
+  lastObservedMarker: string;
   approvalBindingVerified: boolean;
   accepted: boolean;
   completionSeen: boolean;
@@ -135,6 +145,7 @@ type PackageIdentity = {
   packageIntegrity: string | null;
   packageShasum: string | null;
   mcpBinarySha256: string | null;
+  mcpBinaryHashVerified: boolean;
   immutablePrefixVerified: boolean;
 };
 
@@ -153,7 +164,12 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
   const warnings: string[] = [];
   if (options.packageVersion !== EVA_IDLE_ROUTE_PACKAGE_VERSION) blockers.push("candidate_package_version_unsupported");
   if (options.candidateSha !== EVA_IDLE_ROUTE_CANDIDATE_SHA) blockers.push("candidate_sha_mismatch");
-  const identity = inspectPackageIdentity(options.mcpBin, options.packageVersion, blockers);
+  const identity = inspectPackageIdentity(
+    options.mcpBin,
+    options.packageVersion,
+    options.expectedMcpBinarySha256 ?? EVA_IDLE_ROUTE_MCP_BINARY_SHA256,
+    blockers
+  );
   const harnessHead = readHarnessHead(options.repoRoot ?? process.cwd(), blockers);
   const title = execute ? createPublicSafeTitle(generatedAt, options.candidateSha) : null;
   let session: PersistentMcpSession | null = null;
@@ -165,6 +181,8 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
   let liveTargetHash: string | null = null;
   let dryMessageHash: string | null = null;
   let liveMessageHash: string | null = null;
+  let dryParamsHash: string | null = null;
+  let liveParamsHash: string | null = null;
   let approvalBindingVerified = false;
   let accepted = false;
   let completionSeen = false;
@@ -259,7 +277,8 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
           }, blockers, "deliver_dry_run_failed");
           if (dry.stage.status === "passed" && dry.value) {
             dryTargetHash = dry.value.targetHash;
-            dryMessageHash = sha256(EVA_IDLE_ROUTE_MESSAGE);
+            dryMessageHash = dry.value.messageHash;
+            dryParamsHash = dry.value.paramsHash;
             const live = await runStage(stages, "deliver_live", async () => {
               const result = await session!.request("tools/call", {
                 name: "lco_codex_deliver",
@@ -277,13 +296,18 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
               if (stringValue(record.params_hash) !== dry.value!.paramsHash || stringValue(record.message_hash) !== dry.value!.messageHash) {
                 throw new EvaIdleRouteError("approval_hash_mismatch");
               }
-              return record;
+              return {
+                record,
+                paramsHash: stringValue(record.params_hash)!,
+                messageHash: stringValue(record.message_hash)!
+              };
             }, blockers, "deliver_live_failed");
             if (live.stage.status === "passed") {
               accepted = true;
               approvalBindingVerified = true;
               liveTargetHash = routeHash;
-              liveMessageHash = sha256(EVA_IDLE_ROUTE_MESSAGE);
+              liveMessageHash = live.value!.messageHash;
+              liveParamsHash = live.value!.paramsHash;
               const completion = await runStage(stages, "completion_probe", async () => {
                 const deadline = idleAcceptanceDeadline ?? Date.now();
                 while (Date.now() <= deadline) {
@@ -353,6 +377,12 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
       liveSha256: liveMessageHash,
       equal: Boolean(dryMessageHash && dryMessageHash === liveMessageHash)
     },
+    parameterHashes: {
+      dryRunSha256: dryParamsHash,
+      liveSha256: liveParamsHash,
+      equal: Boolean(dryParamsHash && dryParamsHash === liveParamsHash)
+    },
+    lastObservedMarker: stages.at(-1)?.name ?? "not_started",
     approvalBindingVerified,
     accepted,
     completionSeen,
@@ -570,6 +600,7 @@ function createAuditBoundary(): AuditBoundary {
   const rootPath = mkdtempSync(join(tmpdir(), "lco-eva-idle-audit-"));
   chmodSync(rootPath, 0o700);
   const auditPath = join(rootPath, "audit.jsonl");
+  writeFileSync(auditPath, "", { mode: 0o600, flag: "wx" });
   return {
     rootPath,
     auditPath,
@@ -623,7 +654,7 @@ async function createDaemonSetupClient(): Promise<EvaIdleRouteSetupClient> {
     async completionObserved(threadId) {
       const response = await client.request("thread/read", { threadId, includeTurns: true });
       if (!response.ok) throw new EvaIdleRouteError("thread_read_failed");
-      return containsIdleMarker(response.result);
+      return containsTerminalAssistantMarker(response.result);
     },
     close: () => client.close()
   };
@@ -651,15 +682,17 @@ function isolatedSubjectEnv(source: NodeJS.ProcessEnv, runtimeRoot: string | nul
   return env;
 }
 
-function inspectPackageIdentity(mcpBin: string, expectedVersion: string, blockers: string[]): PackageIdentity {
+function inspectPackageIdentity(mcpBin: string, expectedVersion: string, expectedBinarySha256: string, blockers: string[]): PackageIdentity {
   let mcpBinarySha256: string | null = null;
   let packageRoot: string | null = null;
+  let mcpBinaryHashVerified = false;
   let immutablePrefixVerified = false;
   try {
     const stat = statSync(mcpBin);
     if (!stat.isFile()) throw new EvaIdleRouteError("mcp_binary_not_regular");
     const resolvedBin = realpathSync(mcpBin);
     mcpBinarySha256 = sha256(readFileSync(resolvedBin));
+    mcpBinaryHashVerified = mcpBinarySha256 === expectedBinarySha256;
     packageRoot = findSupportedPackageRoot(dirname(resolvedBin));
     immutablePrefixVerified = resolvedBin.includes(EVA_IDLE_ROUTE_PREFIX_MARKER);
   } catch (error) {
@@ -668,6 +701,7 @@ function inspectPackageIdentity(mcpBin: string, expectedVersion: string, blocker
   const packageVersion = packageRoot ? readPackageVersionFromRoots([packageRoot]) : null;
   const packageName = packageRoot ? packageNameForRoot(packageRoot) : null;
   if (!packageRoot) blockers.push("subject_package_root_unavailable");
+  if (!mcpBinaryHashVerified) blockers.push("subject_mcp_binary_hash_mismatch");
   if (!immutablePrefixVerified) blockers.push("subject_immutable_prefix_mismatch");
   if (packageName !== CANONICAL_PACKAGE_NAME) blockers.push("subject_package_name_mismatch");
   if (packageVersion !== expectedVersion) blockers.push("subject_package_version_mismatch");
@@ -678,6 +712,7 @@ function inspectPackageIdentity(mcpBin: string, expectedVersion: string, blocker
     packageIntegrity: isRelease ? EVA_IDLE_ROUTE_PACKAGE_INTEGRITY : null,
     packageShasum: isRelease ? EVA_IDLE_ROUTE_PACKAGE_SHASUM : null,
     mcpBinarySha256,
+    mcpBinaryHashVerified,
     immutablePrefixVerified
   };
 }
@@ -726,11 +761,25 @@ function extractToolNames(value: unknown): string[] {
     .filter((name): name is string => typeof name === "string" && /^lco_[a-z0-9_]+$/.test(name));
 }
 
-function containsIdleMarker(value: unknown): boolean {
-  if (typeof value === "string") return value === "LCO_IDLE_OK" || value.includes("LCO_IDLE_OK");
-  if (Array.isArray(value)) return value.some(containsIdleMarker);
+export function containsTerminalAssistantMarker(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsTerminalAssistantMarker);
   const record = asRecord(value);
-  return record ? Object.values(record).some(containsIdleMarker) : false;
+  if (!record) return false;
+  const type = stringValue(record.type)?.replace(/[^a-z]/gi, "").toLowerCase();
+  const role = stringValue(record.role)?.toLowerCase();
+  if (role === "assistant" || type === "agentmessage" || type === "assistantmessage") {
+    return Object.values(record).some(containsExactIdleMarker);
+  }
+  return Object.entries(record)
+    .filter(([key]) => key === "thread" || key === "turns" || key === "items" || key === "data" || key === "result")
+    .some(([, nested]) => containsTerminalAssistantMarker(nested));
+}
+
+function containsExactIdleMarker(value: unknown): boolean {
+  if (typeof value === "string") return value.trim() === "LCO_IDLE_OK";
+  if (Array.isArray(value)) return value.some(containsExactIdleMarker);
+  const record = asRecord(value);
+  return record ? Object.values(record).some(containsExactIdleMarker) : false;
 }
 
 function routeReason(record: StructuredResult): string {

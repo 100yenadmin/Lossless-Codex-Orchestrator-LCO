@@ -154,7 +154,8 @@ The ladder is initialize/list (30s), route (15s), dry-run (15s), live deliver
 permits exactly one disposable live idle send. Require one persistent MCP
 session, an opaque target, a single-use matching approval, a separate
 read-only completion probe, and a sanitized `lco.evaIdleRouteDeliver.v1`
-receipt. Source-head harness identity and exact package/binary identity are
+receipt with paired target/message/parameter hashes and the last observed
+stage marker. Source-head harness identity and exact package/binary identity are
 separate proof fields. This candidate tier does not alter Eva's active allowlist
 or prove Eva runtime, Telegram, customer, fleet, publication, or release
 readiness.
