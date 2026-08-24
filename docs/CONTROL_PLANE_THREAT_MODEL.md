@@ -61,6 +61,17 @@ The MCP server accepts only `initialize`, `tools/list`, and `tools/call`.
 Eva route/deliver/interrupt exposes opaque refs and revalidates ownership,
 state, turn, approval, and exact Desktop target/composer readback before action.
 
+The issue #808 idle-route harness is an operator-only candidate smoke. Its
+restricted daemon setup client starts and names one disposable
+read-only/no-network task while retaining the daemon task ID only in process
+memory. One persistent package MCP session performs opaque route, dry-run, and
+live delivery; the setup client separately polls that known task read-only for
+completion. The source-head harness
+and exact package-owned MCP binary are proved separately; the harness does not
+edit Eva's active sixteen-tool allowlist or claim Eva runtime safety. Its outer
+ladder is initialize/list 30s, route 15s, each delivery 15s, and completion
+120s, while Hermes has a separate 300s per-tool timeout.
+
 ### Token scope
 
 Gateway and adapter tokens grant access only to the local surface they are
@@ -124,6 +135,7 @@ interrupt scratch turns only when the release issue asks for those rows.
 | Source-store mutation | Derived prep code changes Codex files or external systems. | Mutation-family policy split and tests for source-store/external-write fail-closed behavior. |
 | GUI overreach | Desktop fallback becomes arbitrary app control. | Keep desktop lanes metadata/action-bound until a separate GUI issue proves exact behavior. |
 | Release mismatch | npm, tag, and GitHub Release point at different SHAs. | Release finalization status and dual-package rollback runbook. |
+| Candidate/runtime confusion | Source-head idle-route smoke is mistaken for active Eva/Hermes proof. | Bind harness head and package/binary identity separately, keep candidate smoke outside the active allowlist, and record the 120s outer versus 300s Hermes timeout boundary. |
 
 ## Operator Checks
 
@@ -134,6 +146,9 @@ Before relying on the public 1.7.0 release, release captains should verify:
 - Gateway and MCP reports do not include raw tokens or private local paths.
 - Prepared-state outputs keep source refs, freshness, confidence, and omissions.
 - Scratch live-control evidence targets disposable sessions only.
+- Issue #808 receipts use `lco.evaIdleRouteDeliver.v1`, retain no raw target,
+  task/thread, approval, audit, log, transcript, or configuration fields, and
+  distinguish transport `accepted` from completion.
 - Release notes are written for users and developers; operator risk detail stays
   in this file, `docs/RELEASE_CHECKLIST.md`, `docs/CLAIM_AUDIT.md`, issue
   comments, and QA evidence.

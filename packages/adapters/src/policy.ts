@@ -100,7 +100,7 @@ export const CODEX_TARGET_METHOD_POLICY: TargetMethodPolicy = {
   readMethods: CODEX_READ_METHODS,
   controlMethods: CODEX_CONTROL_METHODS,
   forbiddenMethods: CODEX_FORBIDDEN_METHODS,
-  smokeSetupMethods: new Set(["thread/start"])
+  smokeSetupMethods: new Set(["thread/start", "thread/name/set"])
 };
 
 export type LooCommandMode = "read_only" | "local_cache_write" | "approval_gated_control" | "dry_run_only";

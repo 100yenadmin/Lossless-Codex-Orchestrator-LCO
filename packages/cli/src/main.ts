@@ -94,6 +94,7 @@ import {
   type QaLabRubricVersion
 } from "./qa-lab-review.js";
 import { createQaLabWorkflowReport, type QaLabWorkflowMode, type QaLabWorkflowSurface } from "./qa-lab-workflow.js";
+import { runEvaIdleRoute } from "./qa-lab-eva-idle-route.js";
 import { runOpenClawGatewayLiveControlSmoke, type OpenClawGatewayLiveControlAction } from "./openclaw-live-control-smoke.js";
 import { runOpenClawPostActionRefreshSmoke } from "./openclaw-post-action-refresh-smoke.js";
 import { createScorecardSweep } from "./scorecard-sweep.js";
@@ -1078,6 +1079,17 @@ async function main() {
     if (parsed.strict && !report.ok) process.exitCode = 1;
     return;
   }
+  if (command === "qa-lab" && args[0] === "eva-idle-route") {
+    if (hasHelpFlag(args.slice(1))) {
+      printQaLabEvaIdleRouteHelp();
+      return;
+    }
+    const parsed = parseQaLabEvaIdleRouteArgs(args.slice(1));
+    const report = await runEvaIdleRoute(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.ok) process.exitCode = 1;
+    return;
+  }
   if (command === "hermes" && args[0] === "smoke") {
     if (hasHelpFlag(args.slice(1))) {
       printHermesSmokeHelp();
@@ -1354,6 +1366,7 @@ function mainUsageText(): string {
     "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--qa-lab-run path] [--tool-coverage path] [--live-control-matrix path] [--judge-review path] [--adversarial-review path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
     "  loo release demo-status --evidence-dir path [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]",
     "  loo qa-lab cli-mcp-smoke --evidence-dir path --package-version version [--candidate-sha sha] [--cli-bin path] [--mcp-bin path] [--required-tool name] [--tool-call name] [--timeout-ms ms] [--now iso] [--strict]",
+    "  loo qa-lab eva-idle-route --evidence-dir path --mcp-bin path --package-version 1.7.0 --candidate-sha sha [--execute] --strict",
     "  loo hermes smoke --evidence-dir path --package-version version --candidate-sha sha [--cli-bin path] [--mcp-bin path] [--find-latency-threshold-ms ms] [--timeout-ms ms] [--now iso] [--strict]",
     "  loo qa-lab run --suite ga --artifact published|candidate --evidence-dir path --package-version version --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--tool-coverage path] [--workflow-run path] [--cli-mcp-smoke path] [--desktop-contract path] [--live-control-matrix path] [--scenario-sweep path] [--scorecard-sweep path] [--privacy-scan path] [--now iso] [--strict]",
     "  loo qa-lab tool-coverage --evidence-dir path [--tool-smoke-report path] [--dogfood-report path] [--published-smoke path] [--manifest path] [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--coverage-policy full|facade] [--now iso] [--strict]",
@@ -2308,6 +2321,25 @@ function printQaLabCliMcpSmokeHelp(): void {
     "Safety boundary:",
     "  This command writes public-safe evidence only.",
     "  It does not run live Codex control, mutate a desktop GUI, capture screenshots, publish npm, or create a GitHub Release."
+  ].join("\n"));
+}
+
+function printQaLabEvaIdleRouteHelp(): void {
+  console.log([
+    "Usage:",
+    "  lco qa-lab eva-idle-route --evidence-dir path --mcp-bin path --package-version 1.7.0 --candidate-sha sha [--execute] --strict",
+    "",
+    "Runs the operator-only Eva idle-route ladder against one exact package-owned MCP binary.",
+    "",
+    "Stages:",
+    "  default             non-executing package/MCP preflight only",
+    "  --execute           one disposable read-only/no-network task and exactly one idle send",
+    "  --strict            exit non-zero when an execute ladder stage blocks",
+    "",
+    "Safety boundary:",
+    "  One persistent MCP session performs opaque route, dry-run deliver, and matching live deliver; the setup client separately observes the known disposable task read-only.",
+    "  Raw task/thread/target/approval/message values stay in process memory and receipts contain hashes, statuses, and sanitized error classes only.",
+    "  The ladder does not prove Eva runtime safety, Hermes dispatch, release publication, customer readiness, or fleet readiness."
   ].join("\n"));
 }
 
@@ -5276,6 +5308,55 @@ function parseQaLabCliMcpSmokeArgs(input: string[]): {
     now,
     strict
   };
+}
+
+function parseQaLabEvaIdleRouteArgs(input: string[]): {
+  evidenceDir: string;
+  mcpBin: string;
+  packageVersion: string;
+  candidateSha: string;
+  execute: boolean;
+  strict: boolean;
+} {
+  let evidenceDir: string | undefined;
+  let mcpBin: string | undefined;
+  let packageVersion: string | undefined;
+  let candidateSha: string | undefined;
+  let execute = false;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--mcp-bin") {
+      mcpBin = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--package-version") {
+      packageVersion = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--candidate-sha") {
+      candidateSha = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--execute") {
+      execute = true;
+      continue;
+    }
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    throw new Error(`Unknown qa-lab eva-idle-route option: ${arg}`);
+  }
+  if (!evidenceDir) throw new Error("qa-lab eva-idle-route requires --evidence-dir");
+  if (!mcpBin) throw new Error("qa-lab eva-idle-route requires --mcp-bin");
+  if (!packageVersion) throw new Error("qa-lab eva-idle-route requires --package-version");
+  if (!candidateSha) throw new Error("qa-lab eva-idle-route requires --candidate-sha");
+  return { evidenceDir, mcpBin, packageVersion, candidateSha, execute, strict };
 }
 
 function parseLooToolName(value: string, flag: string): string {

@@ -13,9 +13,9 @@ runbook or by documentation-only evidence.
 ## Release Truth
 
 - GitHub issues are the implementation truth.
-- Issue #6 tracks the Milestone 5 public beta release.
-- Issue #14 tracks the public beta package, release, demo, and claim audit child
-  work.
+- Milestone 15 tracker #798, runtime gate #799, and diagnostic child #808 hold
+  the current Eva 1.7 source/runtime boundary; none reopens historical beta
+  releases or substitutes for a future release-train tracker.
 - `VISION.md` is the product and eval truth.
 - This runbook is the release-operation truth for the beta train.
 - Rollbacks, dist-tag corrections, and dual-name package repairs are handled in
@@ -40,7 +40,8 @@ main is the integration branch, not a release.
 Use this cadence for beta work:
 
 1. Merge tested feature PRs to `main`.
-2. Open or update the release tracker status on issue #6 and issue #14.
+2. Open or update the active release-train tracker; use #808 only for the
+   bounded Eva idle-route diagnostic evidence it owns.
 3. Cut a release candidate from the current `main` commit only after the beta
    gates below have a named evidence directory.
 4. Validate the release candidate through the public CLI, Hermes/Python MCP
@@ -50,12 +51,10 @@ Use this cadence for beta work:
 6. After publication, install from the published artifact and rerun the same
    public user-path smoke before calling the release complete.
 
-Recommended naming:
-
-- Branch: `release/0.1.0-beta.1`
-- Tag: `v0.1.0-beta.1`
-- Evidence slug:
-  `$LCO_EVIDENCE_ROOT/YYYY-MM-DD/release-0.1.0-beta.1-rc`
+For a current candidate, use the issue-owned branch and candidate SHA. Do not
+reuse the historical `0.1.x` beta branch or tag examples for an Eva runtime
+claim. Evidence remains dated and local, for example:
+`$LCO_EVIDENCE_ROOT/YYYY-MM-DD/lco-1-7-idle-path-and-runtime-closure`.
 
 ## Working App Proof Lane
 
@@ -282,6 +281,30 @@ This is PR-readiness compatibility evidence for the named SHA. It is not merge,
 publication, an active Hermes profile install, Eva runtime/customer proof, or
 Trusted Publishing proof.
 
+### Eva idle-route candidate ladder
+
+Issue #808 adds one operator-only source-head smoke for the inactive immutable
+1.7.0 package. Run `lco qa-lab eva-idle-route` with the exact package-owned MCP
+binary and the candidate SHA; the default is non-executing and `--execute`
+permits exactly one disposable live idle send. The ladder is initialize/list
+(30s), route (15s), deliver dry-run (15s), live deliver (15s), and a bounded
+completion/overall acceptance window of 120s. Hermes keeps its separate 300s
+per-tool timeout, so an outer timeout is a recorded boundary, not a diagnosis.
+
+The harness keeps route, dry-run, and live delivery on one persistent package
+MCP session. Its restricted daemon setup client separately creates, names, and
+polls the known disposable task read-only for completion. It uses an opaque
+route target and a single-use matching approval; raw task/thread identifiers,
+approval records, logs, and transcripts stay in process or in the subject's
+private audit boundary. `accepted` and completion are separate receipt markers.
+
+This is candidate smoke evidence built from the source head while exercising
+the supplied immutable package binary. It does not prove the released package
+ships the harness, does not modify Eva's profile-local sixteen-tool allowlist,
+and does not prove active Eva/Hermes runtime, Telegram, customer, or release
+readiness. Use the receipt schema `lco.evaIdleRouteDeliver.v1` and preserve its
+source/package proof split.
+
 ## OpenClaw Install And Tool Declaration Smoke
 
 The local OpenClaw gateway is a maintained compatibility user. Run
@@ -351,7 +374,8 @@ publish, or GitHub Release creation.
 
 A release candidate may be announced internally when all of these are true:
 
-- issue #6 and issue #14 have current status comments
+- the active release-train tracker has a current status comment; if the train
+  depends on the Eva idle-route path, #808 also has a current diagnostic receipt
 - GitHub CI is green for the release candidate commit
 - CodeQL code scanning is green for the release candidate commit
 - repository ruleset, workflow, and open code-scanning alert inventory has been
@@ -590,9 +614,10 @@ Only after the approval gates are satisfied:
    tokens or raw registry/API output. Use `--expected-dist-tag next` for RCs and
    `--expected-dist-tag latest --expected-github-prerelease false` only for an
    intentional stable lane.
-8. Update issue #6 and issue #14 with the tag, package/version, GitHub Release
-   URL if created, CI link, evidence path, working/not-working list, proof
-   boundary, and next action.
+8. Update the active release-train tracker with the tag, package/version,
+   GitHub Release URL if created, CI link, evidence path, working/not-working
+   list, proof boundary, and next action. Update #808 only with its candidate
+   diagnostic receipt, never as release or runtime-activation proof.
 
 ## Stop Conditions
 
@@ -622,7 +647,8 @@ Stop and leave the release candidate unpublished if any of these occur:
 Every release-candidate or release closeout should include:
 
 - commit SHA and tag or candidate name
-- issue #6 and issue #14 status links
+- active release-train tracker status link, plus #808 only when the candidate
+  uses the Eva idle-route diagnostic
 - commands run and exit status
 - evidence path
 - release context freshness scan evidence

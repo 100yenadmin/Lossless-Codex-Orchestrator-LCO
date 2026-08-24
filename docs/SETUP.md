@@ -416,6 +416,39 @@ candidate package probe. Both reports are public-safe candidate evidence only:
 they do not prove publication, an active profile install, or live Eva runtime
 safety.
 
+### Eva idle-route QA ladder (issue #808)
+
+The operator-only idle-route harness is a source-head candidate smoke. It does
+not install a package, edit an Eva profile or allowlist, start/restart Codex, or
+replace the active Eva/Hermes runtime gate. Run it with the exact immutable
+package-owned MCP binary:
+
+```bash
+lco qa-lab eva-idle-route \
+  --evidence-dir <path> \
+  --mcp-bin <exact-package-bin> \
+  --package-version 1.7.0 \
+  --candidate-sha 78bd6e7d4e5656d09e76c4c85d01a85b3515b354 \
+  [--execute] --strict
+```
+
+Without `--execute`, the command is non-executing. With `--execute`, it creates
+one disposable read-only/no-network task, names it internally, routes by its
+unique public-safe title, performs one opaque dry-run/live delivery pair, and
+then observes the known disposable task through a separate read-only daemon
+probe. Route, dry-run, and live delivery remain on one persistent package MCP
+session. `accepted` is transport acceptance only; it is separate from the
+completion marker.
+
+The bounded ladder is: MCP initialize/list (30s), route (15s), deliver dry-run
+(15s), live deliver (15s), then completion and overall idle acceptance (120s).
+Hermes has a separate 300s per-tool timeout, so an outer 120s timeout must not
+be interpreted as a Hermes handler or runtime failure. The receipt is
+`lco.evaIdleRouteDeliver.v1` and records sanitized statuses, timings, hashes,
+and proof boundaries only. Source-head harness proof and package/binary identity
+proof remain separate; neither proves active Eva allowlist/runtime or customer
+readiness.
+
 ### Claude Code (`.mcp.json`)
 
 ```json

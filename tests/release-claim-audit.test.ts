@@ -361,8 +361,10 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
     /do not run live Codex control/i,
     /do not run GUI mutation/i,
     /evidence.*\$LCO_EVIDENCE_ROOT/i,
-    /issue #6/i,
-    /issue #14/i
+    /Milestone 15 tracker #798/i,
+    /runtime gate #799/i,
+    /diagnostic child #808/i,
+    /active release-train tracker/i
   ]) {
     assert.match(runbook, required);
   }

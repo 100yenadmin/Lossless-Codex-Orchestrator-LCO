@@ -113,6 +113,8 @@ test("Codex method policy blocks generic mutation passthrough but allows approve
   assert.throws(() => assertCodexMethodAllowed("thread/start", "generic"), /not allowed on generic/);
   assert.doesNotThrow(() => assertCodexMethodAllowed("thread/start", "control"));
   assert.doesNotThrow(() => assertCodexMethodAllowed("thread/start", "smoke_setup"));
+  assert.doesNotThrow(() => assertCodexMethodAllowed("thread/name/set", "smoke_setup"));
+  assert.throws(() => assertCodexMethodAllowed("thread/name/set", "control"), /forbidden/);
   assert.throws(() => assertCodexMethodAllowed("config/value/write", "control"), /forbidden/);
 });
 
