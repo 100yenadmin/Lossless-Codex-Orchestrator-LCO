@@ -510,14 +510,7 @@ function reserveEvaIdleRouteReport(evidenceDir: string): ReceiptReservation {
   try {
     mkdirSync(evidenceDir, { recursive: true });
     const outputPath = join(evidenceDir, "eva-idle-route.json");
-    try {
-      const stat = lstatSync(outputPath);
-      if (!stat.isFile()) throw new EvaIdleRouteError("evidence_destination_unavailable");
-      return { fd: openSync(outputPath, "r+") };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      return { fd: openSync(outputPath, "wx", 0o600) };
-    }
+    return { fd: openSync(outputPath, "wx", 0o600) };
   } catch {
     throw new EvaIdleRouteError("evidence_destination_unavailable");
   }
