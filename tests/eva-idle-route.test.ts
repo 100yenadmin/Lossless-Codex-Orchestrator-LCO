@@ -29,7 +29,7 @@ function packageProof(subject: ReturnType<typeof fakeSubject>): { packageTarball
   return { packageTarball: subject.tarball, expectedPackageIntegrity: subject.tarballIntegrity, expectedPackageShasum: subject.tarballShasum, repoRoot: subject.repoRoot };
 }
 
-function fakeSubject(t: TestContext, options: { behavior?: string; wrongPrefix?: boolean; packageName?: string } = {}): { bin: string; callsPath: string; sha256: string; tarball: string; tarballIntegrity: string; tarballShasum: string; repoRoot: string } {
+function fakeSubject(t: TestContext, options: { behavior?: string; wrongPrefix?: boolean; packageName?: string; tarballBinMode?: number } = {}): { bin: string; callsPath: string; sha256: string; tarball: string; tarballIntegrity: string; tarballShasum: string; repoRoot: string } {
   const dir = tempDir(t, options.wrongPrefix ? "lco-wrong-prefix-" : "lossless-codex-orchestrator-1.7.0-9b4199489324-");
   writeFileSync(join(dir, "package.json"), JSON.stringify({ name: options.packageName ?? "lossless-codex-orchestrator", version: PACKAGE_VERSION }));
   const callsPath = join(dir, "calls.jsonl");
@@ -103,7 +103,9 @@ process.stdin.on("data", (chunk) => {
   const packageDir = join(packageStaging, "package");
   mkdirSync(packageDir);
   writeFileSync(join(packageDir, "package.json"), readFileSync(join(dir, "package.json")));
-  writeFileSync(join(packageDir, "lco-mcp-server.mjs"), readFileSync(bin), { mode: 0o755 });
+  const packagedBin = join(packageDir, "lco-mcp-server.mjs");
+  writeFileSync(packagedBin, readFileSync(bin), { mode: options.tarballBinMode ?? 0o755 });
+  chmodSync(packagedBin, options.tarballBinMode ?? 0o755);
   const tarball = join(packageStaging, "lossless-codex-orchestrator-1.7.0.tgz");
   execFileSync("tar", ["-czf", tarball, "-C", packageStaging, "package"]);
   const tarballBytes = readFileSync(tarball);
@@ -307,6 +309,25 @@ test("eva idle route spawns the verified private package snapshot after an origi
   assert.equal(report.ok, true, JSON.stringify(report, null, 2));
   assert.ok(spawnedBin);
   assert.notEqual(spawnedBin, subject.bin);
+});
+
+test("eva idle route promotes the verified npm tar snapshot bin to executable before spawn", async (t) => {
+  const subject = fakeSubject(t, { tarballBinMode: 0o644 });
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    ...packageProof(subject),
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    setupClientFactory: async () => setupClient([]),
+    execute: true,
+    now: "2026-08-24T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+  assert.equal(report.subject.manifestMatchVerified, true);
+  assert.equal(report.actionsPerformed.liveCodexControlRun, true);
 });
 
 test("eva idle route stops before live delivery after the overall acceptance deadline", async (t) => {
