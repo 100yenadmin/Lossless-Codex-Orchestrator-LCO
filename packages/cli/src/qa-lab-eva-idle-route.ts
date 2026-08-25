@@ -248,7 +248,6 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
   let accepted = false;
   let completionSeen = false;
   let terminalMarkerObserved = false;
-  let taskCreated = false;
   let sourceStoreMutationPossible = false;
   let mcpSessionCount = 0;
   let runtimeRoot: string | null = null;
@@ -304,7 +303,6 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
           ?? (() => createDaemonSetupClient(options.env ?? process.env, options.daemonClientFactoryForTest)))();
         sourceStoreMutationPossible = true;
         const threadId = await setupClient.startThread();
-        taskCreated = true;
         await setupClient.nameThread(threadId, title!);
         return { threadId };
       }, blockers, "task_setup_failed");
@@ -505,7 +503,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
       cleanupStatus: audit.cleanupStatus
     },
     actionsPerformed: {
-      liveCodexControlRun: execute && (taskCreated || accepted),
+      liveCodexControlRun: execute && sourceStoreMutationPossible,
       sourceStoreMutation: sourceStoreMutationPossible,
       externalWrite: false,
       guiMutation: false,
@@ -803,7 +801,16 @@ async function createDaemonSetupClient(
     if (!isAbsolute(socketPath)) throw new EvaIdleRouteError("daemon_socket_not_absolute");
     client = new CodexJsonRpcClient(() => new UnixSocketWebSocketTransport(socketPath, DEFAULT_STAGE_TIMEOUTS.routeMs), { surface: "smoke_setup" });
   }
-  await client.connect();
+  try {
+    await client.connect();
+  } catch (error) {
+    try {
+      await client.close();
+    } catch {
+      // Preserve the original connection failure as the public stage blocker.
+    }
+    throw error;
+  }
   return {
     async startThread() {
       const response = await client.request("thread/start", {

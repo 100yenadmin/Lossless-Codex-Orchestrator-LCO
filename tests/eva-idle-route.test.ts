@@ -238,7 +238,48 @@ test("eva idle daemon conservatively reports a transmitted persistent start reje
   assert.equal(requests[0]?.method, "thread/start");
   assert.ok(report.blockers.includes("thread_start_rejected"));
   assert.equal(report.actionsPerformed.sourceStoreMutation, true);
+  assert.equal(report.actionsPerformed.liveCodexControlRun, true);
   assert.doesNotMatch(JSON.stringify(report), /raw-task-id-must-not-escape|private-start-error-must-not-escape/);
+});
+
+test("eva idle daemon closes the client and preserves the connect blocker when setup fails", async (t) => {
+  const subject = fakeSubject(t);
+  let closeCalls = 0;
+  const connectError = new Error("private-connect-error-must-not-escape");
+  connectError.name = "daemon_connect_failed";
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    ...packageProof(subject),
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    execute: true,
+    env: { PATH: process.env.PATH, LCO_CODEX_TRANSPORT: "daemon" },
+    daemonClientFactoryForTest: async () => ({
+      async connect() {
+        throw connectError;
+      },
+      async request() {
+        throw new Error("unexpected daemon request");
+      },
+      async close() {
+        closeCalls += 1;
+        const cleanupError = new Error("private-cleanup-error-must-not-escape");
+        cleanupError.name = "daemon_cleanup_failed";
+        throw cleanupError;
+      }
+    }),
+    now: "2026-08-24T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(closeCalls, 1);
+  assert.ok(report.blockers.includes("daemon_connect_failed"));
+  assert.ok(!report.blockers.includes("daemon_cleanup_failed"));
+  assert.equal(report.actionsPerformed.liveCodexControlRun, false);
+  assert.equal(report.actionsPerformed.sourceStoreMutation, false);
+  assert.doesNotMatch(JSON.stringify(report), /private-connect-error-must-not-escape|private-cleanup-error-must-not-escape/);
 });
 
 test("eva idle completion accepts only an exact terminal assistant marker", () => {
