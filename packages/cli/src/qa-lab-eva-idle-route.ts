@@ -46,6 +46,12 @@ export type EvaIdleRouteSetupClient = {
   close?(): Promise<void> | void;
 };
 
+export type EvaIdleRouteDaemonClient = {
+  connect(): Promise<void>;
+  request(method: string, params: Record<string, unknown>): Promise<{ ok: boolean; result?: unknown }>;
+  close(): Promise<void> | void;
+};
+
 export type EvaIdleRouteOptions = {
   evidenceDir: string;
   mcpBin: string;
@@ -72,6 +78,8 @@ export type EvaIdleRouteOptions = {
   expectedMcpBinarySha256?: string;
   /** @internal focused-test seam; production uses the daemon setup client. */
   setupClientFactory?: () => Promise<EvaIdleRouteSetupClient>;
+  /** @internal focused-test seam; production constructs the pinned daemon RPC client. */
+  daemonClientFactoryForTest?: () => Promise<EvaIdleRouteDaemonClient>;
   /** @internal focused-test seam; production uses child_process.spawn. */
   spawnFactory?: typeof spawn;
   /** @internal focused-test seam; production removes the verified private audit root. */
@@ -291,7 +299,8 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
     } else {
       const setup = await runStage(stages, "task_setup", async () => {
         requireDeadlineOpen(outerAcceptanceDeadline);
-        setupClient = await (options.setupClientFactory ?? createDaemonSetupClient)();
+        setupClient = await (options.setupClientFactory
+          ?? (() => createDaemonSetupClient(options.env ?? process.env, options.daemonClientFactoryForTest)))();
         const threadId = await setupClient.startThread();
         taskCreated = true;
         await setupClient.nameThread(threadId, title!);
@@ -775,20 +784,28 @@ function finalizeAuditBoundary(audit: AuditBoundary, allowCleanup = true, remove
   return { ...audit, directoryMode700, jsonlRegularMode600: jsonl, keyRegularMode600: key, cleanupStatus: "retained_for_operator", cleanupFailed: false };
 }
 
-async function createDaemonSetupClient(): Promise<EvaIdleRouteSetupClient> {
-  const transport = process.env.LCO_CODEX_TRANSPORT ?? "stdio";
+async function createDaemonSetupClient(
+  env: NodeJS.ProcessEnv = process.env,
+  daemonClientFactoryForTest?: () => Promise<EvaIdleRouteDaemonClient>
+): Promise<EvaIdleRouteSetupClient> {
+  const transport = env.LCO_CODEX_TRANSPORT ?? "stdio";
   if (transport !== "daemon") throw new EvaIdleRouteError("daemon_transport_required");
-  const socketOverride = process.env.LCO_CODEX_DAEMON_SOCKET;
-  const codexHome = process.env.CODEX_HOME || join(resolveHomeDir(), ".codex");
-  const { resolveCodexDaemonSocketPath, CodexJsonRpcClient, UnixSocketWebSocketTransport } = await import("../../adapters/src/index.js");
-  const socketPath = socketOverride || resolveCodexDaemonSocketPath(codexHome);
-  if (!isAbsolute(socketPath)) throw new EvaIdleRouteError("daemon_socket_not_absolute");
-  const client = new CodexJsonRpcClient(() => new UnixSocketWebSocketTransport(socketPath, DEFAULT_STAGE_TIMEOUTS.routeMs), { surface: "smoke_setup" });
+  let client: EvaIdleRouteDaemonClient;
+  if (daemonClientFactoryForTest) {
+    client = await daemonClientFactoryForTest();
+  } else {
+    const socketOverride = env.LCO_CODEX_DAEMON_SOCKET;
+    const codexHome = env.CODEX_HOME || join(resolveHomeDir(env), ".codex");
+    const { resolveCodexDaemonSocketPath, CodexJsonRpcClient, UnixSocketWebSocketTransport } = await import("../../adapters/src/index.js");
+    const socketPath = socketOverride || resolveCodexDaemonSocketPath(codexHome);
+    if (!isAbsolute(socketPath)) throw new EvaIdleRouteError("daemon_socket_not_absolute");
+    client = new CodexJsonRpcClient(() => new UnixSocketWebSocketTransport(socketPath, DEFAULT_STAGE_TIMEOUTS.routeMs), { surface: "smoke_setup" });
+  }
   await client.connect();
   return {
     async startThread() {
       const response = await client.request("thread/start", {
-        ephemeral: true,
+        ephemeral: false,
         approvalPolicy: "never",
         sandbox: "read-only"
       });
