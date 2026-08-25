@@ -83,7 +83,8 @@ process.stdin.on("data", (chunk) => {
       else output(msg.id, { schema: "lco.codex.controlRoute.v1", status: "selected", route: "app_server", target_ref: "opaque_target_for_test", title_sanitized: args.hint, state: behavior === "route-active" ? "active" : "idle", supported_actions: behavior === "route-active" ? ["steer"] : ["send"], expires_at: behavior === "route-expired" ? "2000-01-01T00:00:00.000Z" : "2099-01-01T00:00:00.000Z", reason_codes: [], public_safe: true, raw_transcript_returned: false });
     } else if (name === "lco_codex_deliver") {
       if (args.dry_run === false) {
-        const live = { schema: "lco.codex.delivery.v1", status: behavior === "live-reject" || behavior === "contradictory-live" ? "blocked" : "accepted", action: "send", target_ref: args.target_ref, live: true, control_sent: behavior !== "live-reject", approval_audit_id: behavior === "approval-mismatch" ? "other-approval" : behavior === "separate-live-audit-record" ? "loo_audit_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" : args.approval_audit_id, params_hash: behavior === "approval-hash-mismatch" ? "other-params" : behavior === "malformed-hash" ? "params-hash" : "${PARAMS_HASH}", message_hash: behavior === "malformed-hash" ? "message-hash" : "${MESSAGE_HASH}", reason_codes: behavior === "live-reject" ? ["control_rejected"] : [], public_safe: true, raw_transcript_returned: false, raw_thread_id: "do-not-leak" };
+        if (behavior.startsWith("separate-live-audit-") && process.env.LCO_AUDIT_PATH) appendFileSync(process.env.LCO_AUDIT_PATH, JSON.stringify({ id: "loo_audit_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", action: "codex_send_message", live: true, approvalAuditId: behavior === "separate-live-audit-unlinked" ? "wrong-approval" : args.approval_audit_id, approvalState: "completed", paramsHash: "${PARAMS_HASH}", messageHash: "${MESSAGE_HASH}" }) + "\\n");
+        const live = { schema: "lco.codex.delivery.v1", status: behavior === "live-reject" || behavior === "contradictory-live" ? "blocked" : "accepted", action: "send", target_ref: args.target_ref, live: true, control_sent: behavior !== "live-reject", approval_audit_id: behavior === "approval-mismatch" ? "other-approval" : behavior.startsWith("separate-live-audit-") ? "loo_audit_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" : args.approval_audit_id, params_hash: behavior === "approval-hash-mismatch" ? "other-params" : behavior === "malformed-hash" ? "params-hash" : "${PARAMS_HASH}", message_hash: behavior === "malformed-hash" ? "message-hash" : "${MESSAGE_HASH}", reason_codes: behavior === "live-reject" ? ["control_rejected"] : [], public_safe: true, raw_transcript_returned: false, raw_thread_id: "do-not-leak" };
         if (behavior === "slow-live") setTimeout(() => output(msg.id, live), 1_000);
         else output(msg.id, live);
       }
@@ -452,6 +453,28 @@ test("eva idle route accepts the package's separate completed live-audit record"
   assert.equal(liveCalls.length, 1);
   assert.equal(liveCalls[0]?.params?.arguments?.approval_audit_id, "approval-for-test");
   assert.doesNotMatch(JSON.stringify(report), /approval-for-test|loo_audit_b{32}/);
+});
+
+test("eva idle route rejects an unlinked canonical completed live-audit record", async (t) => {
+  const subject = fakeSubject(t, { behavior: "separate-live-audit-unlinked" });
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    ...packageProof(subject),
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    execute: true,
+    setupClientFactory: async () => setupClient([]),
+    now: "2026-08-24T00:00:00.000Z",
+    env: { ...process.env, LCO_EVA_IDLE_CALLS: subject.callsPath }
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.accepted, false);
+  assert.equal(report.approvalBindingVerified, false);
+  assert.ok(report.blockers.includes("approval_binding_mismatch"));
+  assert.doesNotMatch(JSON.stringify(report), /wrong-approval|loo_audit_b{32}/);
 });
 
 test("eva idle route spawns the verified private package snapshot after an original-bin replacement", async (t) => {
