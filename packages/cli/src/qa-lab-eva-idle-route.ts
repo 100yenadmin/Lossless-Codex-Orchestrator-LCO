@@ -249,6 +249,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
   let completionSeen = false;
   let terminalMarkerObserved = false;
   let taskCreated = false;
+  let sourceStoreMutationPossible = false;
   let mcpSessionCount = 0;
   let runtimeRoot: string | null = null;
 
@@ -301,6 +302,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
         requireDeadlineOpen(outerAcceptanceDeadline);
         setupClient = await (options.setupClientFactory
           ?? (() => createDaemonSetupClient(options.env ?? process.env, options.daemonClientFactoryForTest)))();
+        sourceStoreMutationPossible = true;
         const threadId = await setupClient.startThread();
         taskCreated = true;
         await setupClient.nameThread(threadId, title!);
@@ -504,7 +506,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
     },
     actionsPerformed: {
       liveCodexControlRun: execute && (taskCreated || accepted),
-      sourceStoreMutation: taskCreated,
+      sourceStoreMutation: sourceStoreMutationPossible,
       externalWrite: false,
       guiMutation: false,
       npmPublished: false,
