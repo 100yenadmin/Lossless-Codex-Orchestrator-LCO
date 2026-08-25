@@ -374,15 +374,15 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
               if (record.status !== "accepted") throw new EvaIdleRouteError("live_delivery_status_invalid");
               if (record.action !== "send") throw new EvaIdleRouteError("idle_send_action_required");
               const liveApprovalId = stringValue(record.approval_audit_id);
-              if (!liveApprovalId || (liveApprovalId !== dry.value!.approvalId && !isCanonicalLcoAuditId(liveApprovalId))) {
-                throw new EvaIdleRouteError("approval_binding_mismatch");
-              }
               const paramsHash = stringValue(record.params_hash);
               const messageHash = stringValue(record.message_hash);
               if (!paramsHash || !messageHash || !isCanonicalSha256(paramsHash) || !isCanonicalSha256(messageHash)) throw new EvaIdleRouteError("approval_hash_invalid");
               if (stringValue(record.target_ref) !== routeTarget) throw new EvaIdleRouteError("target_drift");
               if (paramsHash !== dry.value!.paramsHash || messageHash !== dry.value!.messageHash) {
                 throw new EvaIdleRouteError("approval_hash_mismatch");
+              }
+              if (!liveApprovalId || !verifyLiveAuditBinding(audit.auditPath, liveApprovalId, dry.value!.approvalId, paramsHash, messageHash)) {
+                throw new EvaIdleRouteError("approval_binding_mismatch");
               }
               return {
                 record,
@@ -1208,6 +1208,33 @@ function isCanonicalSha256(value: string): boolean {
 
 function isCanonicalLcoAuditId(value: string): boolean {
   return /^loo_audit_[0-9a-f]{32}$/.test(value);
+}
+
+function verifyLiveAuditBinding(auditPath: string | null, liveAuditId: string, dryAuditId: string, paramsHash: string, messageHash: string): boolean {
+  if (liveAuditId === dryAuditId) return true;
+  if (!auditPath || !isCanonicalLcoAuditId(liveAuditId) || !regularMode600(auditPath)) return false;
+  try {
+    const stat = lstatSync(auditPath);
+    if (stat.size > 1024 * 1024) return false;
+    let matchCount = 0;
+    for (const line of readFileSync(auditPath, "utf8").split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      const record = asRecord(JSON.parse(line));
+      if (!record || record.id !== liveAuditId) continue;
+      matchCount += 1;
+      if (
+        record.live !== true
+        || record.approvalState !== "completed"
+        || record.approvalAuditId !== dryAuditId
+        || record.paramsHash !== paramsHash
+        || record.messageHash !== messageHash
+        || record.action !== "codex_send_message"
+      ) return false;
+    }
+    return matchCount === 1;
+  } catch {
+    return false;
+  }
 }
 
 function sha256(value: string | Buffer): string {
