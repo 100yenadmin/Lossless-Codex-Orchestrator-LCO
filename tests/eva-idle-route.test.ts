@@ -10,6 +10,7 @@ import {
   containsTerminalAssistantMarker,
   EVA_IDLE_ROUTE_MESSAGE,
   runEvaIdleRoute,
+  type EvaIdleRouteDaemonClient,
   type EvaIdleRouteReport,
   type EvaIdleRouteSetupClient
 } from "../packages/cli/src/qa-lab-eva-idle-route.js";
@@ -139,6 +140,79 @@ function setupClient(events: string[], completionSeen = true): EvaIdleRouteSetup
     }
   };
 }
+
+function daemonSetupClient(
+  requests: Array<{ method: string; params: Record<string, unknown> }>,
+  options: { rejectName?: boolean } = {}
+): EvaIdleRouteDaemonClient {
+  return {
+    async connect() {},
+    async request(method, params) {
+      requests.push({ method, params });
+      if (method === "thread/start") {
+        return { ok: true, result: { thread: { id: "raw-task-id-must-not-escape" } } };
+      }
+      if (method === "thread/name/set") {
+        return options.rejectName
+          ? { ok: false, error: "private-rpc-error-must-not-escape" }
+          : { ok: true, result: {} };
+      }
+      if (method === "thread/read") {
+        return { ok: true, result: { thread: { turns: [{ status: "completed", items: [{ type: "agentMessage", text: "LCO_IDLE_OK" }] }] } } };
+      }
+      return { ok: false };
+    },
+    async close() {}
+  };
+}
+
+test("eva idle daemon setup creates a persistent no-approval read-only task before naming it", async (t) => {
+  const subject = fakeSubject(t);
+  const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    ...packageProof(subject),
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    execute: true,
+    env: { PATH: process.env.PATH, LCO_CODEX_TRANSPORT: "daemon" },
+    daemonClientFactoryForTest: async () => daemonSetupClient(requests),
+    now: "2026-08-24T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, true);
+  assert.deepEqual(requests[0], {
+    method: "thread/start",
+    params: { ephemeral: false, approvalPolicy: "never", sandbox: "read-only" }
+  });
+  assert.equal(requests[1]?.method, "thread/name/set");
+  assert.equal(requests[1]?.params.threadId, "raw-task-id-must-not-escape");
+  assert.equal(requests[1]?.params.name, report.publicSafeTitle);
+  assert.doesNotMatch(JSON.stringify(report), /raw-task-id-must-not-escape/);
+});
+
+test("eva idle daemon naming rejection stays sanitized", async (t) => {
+  const subject = fakeSubject(t);
+  const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    ...packageProof(subject),
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    execute: true,
+    env: { PATH: process.env.PATH, LCO_CODEX_TRANSPORT: "daemon" },
+    daemonClientFactoryForTest: async () => daemonSetupClient(requests, { rejectName: true }),
+    now: "2026-08-24T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.includes("thread_name_rejected"));
+  assert.doesNotMatch(JSON.stringify(report), /raw-task-id-must-not-escape|private-rpc-error-must-not-escape/);
+});
 
 test("eva idle completion accepts only an exact terminal assistant marker", () => {
   assert.doesNotMatch(EVA_IDLE_ROUTE_MESSAGE, /LCO_IDLE_OK/);
