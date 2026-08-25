@@ -143,14 +143,16 @@ function setupClient(events: string[], completionSeen = true): EvaIdleRouteSetup
 
 function daemonSetupClient(
   requests: Array<{ method: string; params: Record<string, unknown> }>,
-  options: { rejectName?: boolean } = {}
+  options: { rejectStart?: boolean; rejectName?: boolean } = {}
 ): EvaIdleRouteDaemonClient {
   return {
     async connect() {},
     async request(method, params) {
       requests.push({ method, params });
       if (method === "thread/start") {
-        return { ok: true, result: { thread: { id: "raw-task-id-must-not-escape" } } };
+        return options.rejectStart
+          ? { ok: false, error: "private-start-error-must-not-escape" }
+          : { ok: true, result: { thread: { id: "raw-task-id-must-not-escape" } } };
       }
       if (method === "thread/name/set") {
         return options.rejectName
@@ -214,6 +216,29 @@ test("eva idle daemon naming rejection stays sanitized", async (t) => {
   assert.ok(report.blockers.includes("thread_name_rejected"));
   assert.equal(report.actionsPerformed.sourceStoreMutation, true);
   assert.doesNotMatch(JSON.stringify(report), /raw-task-id-must-not-escape|private-rpc-error-must-not-escape/);
+});
+
+test("eva idle daemon conservatively reports a transmitted persistent start rejection as a mutation", async (t) => {
+  const subject = fakeSubject(t);
+  const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    ...packageProof(subject),
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    execute: true,
+    env: { PATH: process.env.PATH, LCO_CODEX_TRANSPORT: "daemon" },
+    daemonClientFactoryForTest: async () => daemonSetupClient(requests, { rejectStart: true }),
+    now: "2026-08-24T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(requests[0]?.method, "thread/start");
+  assert.ok(report.blockers.includes("thread_start_rejected"));
+  assert.equal(report.actionsPerformed.sourceStoreMutation, true);
+  assert.doesNotMatch(JSON.stringify(report), /raw-task-id-must-not-escape|private-start-error-must-not-escape/);
 });
 
 test("eva idle completion accepts only an exact terminal assistant marker", () => {
