@@ -373,7 +373,10 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
               }
               if (record.status !== "accepted") throw new EvaIdleRouteError("live_delivery_status_invalid");
               if (record.action !== "send") throw new EvaIdleRouteError("idle_send_action_required");
-              if (stringValue(record.approval_audit_id) !== dry.value!.approvalId) throw new EvaIdleRouteError("approval_binding_mismatch");
+              const liveApprovalId = stringValue(record.approval_audit_id);
+              if (!liveApprovalId || (liveApprovalId !== dry.value!.approvalId && !isCanonicalLcoAuditId(liveApprovalId))) {
+                throw new EvaIdleRouteError("approval_binding_mismatch");
+              }
               const paramsHash = stringValue(record.params_hash);
               const messageHash = stringValue(record.message_hash);
               if (!paramsHash || !messageHash || !isCanonicalSha256(paramsHash) || !isCanonicalSha256(messageHash)) throw new EvaIdleRouteError("approval_hash_invalid");
@@ -1201,6 +1204,10 @@ function isOpaqueTarget(value: string): boolean {
 
 function isCanonicalSha256(value: string): boolean {
   return /^[0-9a-f]{64}$/.test(value);
+}
+
+function isCanonicalLcoAuditId(value: string): boolean {
+  return /^loo_audit_[0-9a-f]{32}$/.test(value);
 }
 
 function sha256(value: string | Buffer): string {
