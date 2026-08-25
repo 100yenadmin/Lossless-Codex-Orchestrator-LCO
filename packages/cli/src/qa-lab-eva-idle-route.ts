@@ -872,8 +872,10 @@ function inspectPackageIdentity(mcpBin: string, expectedVersion: string, package
             mcpBinarySha256 = sha256(readFileSync(snapshotMcpBin));
             mcpBinaryHashVerified = mcpBinarySha256 === expectedBinarySha256;
             if (!mcpBinaryHashVerified) blockers.push("subject_mcp_binary_hash_mismatch");
-            try { chmodSync(snapshotMcpBin, 0o755); }
-            catch { throw new EvaIdleRouteError("snapshot_mcp_binary_activation_failed"); }
+            else {
+              try { chmodSync(snapshotMcpBin, 0o755); }
+              catch { throw new EvaIdleRouteError("snapshot_mcp_binary_activation_failed"); }
+            }
             linkSnapshotDependencies(snapshot.root, packageRoot, blockers);
           }
         }
