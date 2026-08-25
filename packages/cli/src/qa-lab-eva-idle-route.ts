@@ -156,7 +156,7 @@ export type EvaIdleRouteReport = {
   };
   actionsPerformed: {
     liveCodexControlRun: boolean;
-    sourceStoreMutation: false;
+    sourceStoreMutation: boolean;
     externalWrite: false;
     guiMutation: false;
     npmPublished: false;
@@ -504,7 +504,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
     },
     actionsPerformed: {
       liveCodexControlRun: execute && (taskCreated || accepted),
-      sourceStoreMutation: false,
+      sourceStoreMutation: taskCreated,
       externalWrite: false,
       guiMutation: false,
       npmPublished: false,
