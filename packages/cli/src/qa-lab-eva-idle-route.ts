@@ -64,12 +64,18 @@ export type EvaIdleRouteOptions = {
   expectedPackageShasum?: string;
   /** @internal focused-test seam; production uses the 30-second initialize/list budget. */
   initializeListTimeoutMs?: number;
+  /** @internal focused-test seam; production uses Date.now for the initialize/list stage. */
+  initializeListClockForTest?: () => number;
+  /** @internal focused-test seam; production performs no work at this boundary. */
+  beforeInitializeListForTest?: () => void;
   /** @internal focused-test seam; production pins the immutable v1.7.0 MCP binary hash. */
   expectedMcpBinarySha256?: string;
   /** @internal focused-test seam; production uses the daemon setup client. */
   setupClientFactory?: () => Promise<EvaIdleRouteSetupClient>;
   /** @internal focused-test seam; production uses child_process.spawn. */
   spawnFactory?: typeof spawn;
+  /** @internal focused-test seam; production removes the verified private audit root. */
+  auditRootRemoveForTest?: (path: string) => void;
 };
 
 export type EvaIdleRouteReport = {
@@ -81,7 +87,7 @@ export type EvaIdleRouteReport = {
   generatedAt: string;
   harness_repo_head: string;
   harness_command_version: string;
-  candidateSha: string;
+  candidateSha: string | null;
   publicSafeTitle: string | null;
   subject: {
     packageName: SupportedPackageName | null;
@@ -194,12 +200,15 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
   const startedAt = process.hrtime.bigint();
   const completionBudgetMs = options.completionTimeoutMs ?? DEFAULT_STAGE_TIMEOUTS.completionMs;
   const outerAcceptanceDeadline = execute ? Date.now() + completionBudgetMs : null;
-  const initializeListDeadline = execute ? Date.now() + (options.initializeListTimeoutMs ?? DEFAULT_STAGE_TIMEOUTS.initializeMs) : null;
+  const initializeListClock = options.initializeListClockForTest ?? Date.now;
+  let initializeListDeadline: number | null = null;
   const stages: EvaIdleRouteStage[] = [];
   const blockers: string[] = [];
   const warnings: string[] = [];
+  const candidateSha = isCanonicalCommitSha(options.candidateSha) ? options.candidateSha : null;
   if (options.packageVersion !== EVA_IDLE_ROUTE_PACKAGE_VERSION) blockers.push("candidate_package_version_unsupported");
-  if (options.candidateSha !== EVA_IDLE_ROUTE_CANDIDATE_SHA) blockers.push("candidate_sha_mismatch");
+  if (!candidateSha) blockers.push("candidate_sha_invalid");
+  else if (candidateSha !== EVA_IDLE_ROUTE_CANDIDATE_SHA) blockers.push("candidate_sha_mismatch");
   const inspection = inspectPackageIdentity(
     options.mcpBin,
     options.packageVersion,
@@ -215,7 +224,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
   if (execute && !options.packageTarball) blockers.push("package_tarball_required");
   const provenance = readHarnessProvenance(options.repoRoot ?? resolveHarnessRepoRoot(), blockers);
   const harnessHead = provenance.head;
-  const title = execute ? createPublicSafeTitle(generatedAt, options.candidateSha) : null;
+  const title = execute ? createPublicSafeTitle(generatedAt, candidateSha ?? "invalid_candidate") : null;
   let session: PersistentMcpSession | null = null;
   let setupClient: EvaIdleRouteSetupClient | null = null;
   let audit: AuditBoundary = emptyAuditBoundary();
@@ -245,10 +254,12 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
       const runtime = execute ? createRuntimeRoot() : null;
       runtimeRoot = runtime;
       audit = execute ? createAuditBoundary() : emptyAuditBoundary();
+      options.beforeInitializeListForTest?.();
+      initializeListDeadline = initializeListClock() + (options.initializeListTimeoutMs ?? DEFAULT_STAGE_TIMEOUTS.initializeMs);
       session = await PersistentMcpSession.start({
         mcpBin: snapshotMcpBin ?? options.mcpBin,
         expectedVersion: options.packageVersion,
-        timeoutMs: Math.max(1, (initializeListDeadline ?? Date.now() + DEFAULT_STAGE_TIMEOUTS.initializeMs) - Date.now()),
+        timeoutMs: Math.max(1, initializeListDeadline - initializeListClock()),
         spawnFactory: options.spawnFactory,
         env: options.env,
         runtimeRoot: runtime,
@@ -260,9 +271,9 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
 
     if (subject.stage.status === "passed" && subject.value) {
       await runStage(stages, "mcp_tools_list", async () => {
-        const listDeadline = initializeListDeadline ?? Date.now() + DEFAULT_STAGE_TIMEOUTS.initializeMs;
-        if (Date.now() >= listDeadline) throw new EvaIdleRouteError("mcp_initialize_list_deadline_exceeded");
-        const result = await subject.value!.request("tools/list", {}, Math.max(1, listDeadline - Date.now()));
+        const listDeadline = initializeListDeadline ?? initializeListClock() + DEFAULT_STAGE_TIMEOUTS.initializeMs;
+        if (initializeListClock() >= listDeadline) throw new EvaIdleRouteError("mcp_initialize_list_deadline_exceeded");
+        const result = await subject.value!.request("tools/list", {}, Math.max(1, listDeadline - initializeListClock()));
         const names = extractToolNames(result);
         for (const required of ["lco_codex_control_route", "lco_codex_deliver"]) {
           if (!names.includes(required)) throw new EvaIdleRouteError("required_tool_missing");
@@ -425,7 +436,8 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
         }
       }
     }
-    audit = finalizeAuditBoundary(audit, !blockers.includes("mcp_process_exit_unconfirmed"));
+    audit = finalizeAuditBoundary(audit, !blockers.includes("mcp_process_exit_unconfirmed"), options.auditRootRemoveForTest);
+    if (execute && audit.cleanupFailed) blockers.push("audit_cleanup_failed");
     if (execute && audit.cleanupStatus !== "cleaned") blockers.push("audit_boundary_verification_failed");
   }
 
@@ -443,7 +455,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
     harness_source_matches_head: provenance.sourceMatchesHead,
     executing_cli_sha256: provenance.cliSha256,
     executing_harness_sha256: provenance.harnessSha256,
-    candidateSha: options.candidateSha,
+    candidateSha,
     publicSafeTitle: title,
     subject: identity,
     stages: normalizeStages(stages),
@@ -494,7 +506,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
     warnings: uniqueStrings(warnings),
     proofBoundary: "This public-safe operator-only candidate harness proves only the named disposable Eva idle route, opaque dry-run/live acceptance, and bounded read-only completion marker when those stages pass. Declared external dependency artifacts remain outside the package-owned integrity claim. It does not prove Eva runtime safety, Hermes handler/lock/dispatch health, release publication, customer readiness, fleet readiness, or any live action beyond this one disposable task.",
     nextSafeCommands: [
-      `LCO_CODEX_TRANSPORT=daemon lco qa-lab eva-idle-route --evidence-dir <path> --mcp-bin <exact-package-bin> --package-tarball <canonical-1.7.0.tgz> --package-version ${options.packageVersion} --candidate-sha ${options.candidateSha} [--execute] [--strict]`
+      `LCO_CODEX_TRANSPORT=daemon lco qa-lab eva-idle-route --evidence-dir <path> --mcp-bin <exact-package-bin> --package-tarball <canonical-1.7.0.tgz> --package-version ${options.packageVersion} --candidate-sha ${EVA_IDLE_ROUTE_CANDIDATE_SHA} [--execute] [--strict]`
     ]
   };
   try {
@@ -723,10 +735,11 @@ type AuditBoundary = {
   jsonlRegularMode600: boolean;
   keyRegularMode600: boolean;
   cleanupStatus: "not_created" | "cleaned" | "retained_for_operator";
+  cleanupFailed: boolean;
 };
 
 function emptyAuditBoundary(): AuditBoundary {
-  return { rootPath: null, auditPath: null, directoryMode700: false, jsonlRegularMode600: false, keyRegularMode600: false, cleanupStatus: "not_created" };
+  return { rootPath: null, auditPath: null, directoryMode700: false, jsonlRegularMode600: false, keyRegularMode600: false, cleanupStatus: "not_created", cleanupFailed: false };
 }
 
 function createAuditBoundary(): AuditBoundary {
@@ -740,21 +753,26 @@ function createAuditBoundary(): AuditBoundary {
     directoryMode700: modeIs(rootPath, 0o700),
     jsonlRegularMode600: false,
     keyRegularMode600: false,
-    cleanupStatus: "retained_for_operator"
+    cleanupStatus: "retained_for_operator",
+    cleanupFailed: false
   };
 }
 
-function finalizeAuditBoundary(audit: AuditBoundary, allowCleanup = true): AuditBoundary {
+function finalizeAuditBoundary(audit: AuditBoundary, allowCleanup = true, removeRoot?: (path: string) => void): AuditBoundary {
   if (!audit.rootPath || !audit.auditPath) return audit;
   const jsonl = regularMode600(audit.auditPath);
   const key = regularMode600(`${audit.auditPath}.key`);
   const directoryMode700 = modeIs(audit.rootPath, 0o700);
   const safeToDelete = allowCleanup && directoryMode700 && jsonl && key;
   if (safeToDelete) {
-    rmSync(audit.rootPath, { recursive: true, force: true });
-    return { ...audit, directoryMode700, jsonlRegularMode600: jsonl, keyRegularMode600: key, cleanupStatus: "cleaned" };
+    try {
+      (removeRoot ?? ((path) => rmSync(path, { recursive: true, force: true })))(audit.rootPath);
+      return { ...audit, directoryMode700, jsonlRegularMode600: jsonl, keyRegularMode600: key, cleanupStatus: "cleaned", cleanupFailed: false };
+    } catch {
+      return { ...audit, directoryMode700, jsonlRegularMode600: jsonl, keyRegularMode600: key, cleanupStatus: "retained_for_operator", cleanupFailed: true };
+    }
   }
-  return { ...audit, directoryMode700, jsonlRegularMode600: jsonl, keyRegularMode600: key, cleanupStatus: "retained_for_operator" };
+  return { ...audit, directoryMode700, jsonlRegularMode600: jsonl, keyRegularMode600: key, cleanupStatus: "retained_for_operator", cleanupFailed: false };
 }
 
 async function createDaemonSetupClient(): Promise<EvaIdleRouteSetupClient> {
@@ -829,8 +847,8 @@ function inspectPackageIdentity(mcpBin: string, expectedVersion: string, package
   let installedManifestSha256: string | null = null;
   let manifestMatchVerified = false;
   try {
-    if (!lstatSync(mcpBin).isFile()) throw new EvaIdleRouteError("mcp_binary_not_regular");
     const resolvedBin = realpathSync(mcpBin);
+    if (!lstatSync(resolvedBin).isFile()) throw new EvaIdleRouteError("mcp_binary_not_regular");
     mcpBinarySha256 = sha256(readFileSync(resolvedBin));
     mcpBinaryHashVerified = mcpBinarySha256 === expectedBinarySha256;
     packageRoot = findSupportedPackageRoot(dirname(resolvedBin));
@@ -1047,6 +1065,10 @@ function readHarnessCommandVersion(): string {
 
 function createPublicSafeTitle(generatedAt: string, candidateSha: string): string {
   return `Eva LCO idle route probe ${sha256(`${generatedAt}:${candidateSha}`).slice(0, 12)}`;
+}
+
+function isCanonicalCommitSha(value: string): boolean {
+  return /^[0-9a-f]{40}$/.test(value);
 }
 
 function requireStructured(value: unknown): StructuredResult {
