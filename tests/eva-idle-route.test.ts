@@ -190,6 +190,7 @@ test("eva idle daemon setup creates a persistent no-approval read-only task befo
   assert.equal(requests[1]?.method, "thread/name/set");
   assert.equal(requests[1]?.params.threadId, "raw-task-id-must-not-escape");
   assert.equal(requests[1]?.params.name, report.publicSafeTitle);
+  assert.equal(report.actionsPerformed.sourceStoreMutation, true);
   assert.doesNotMatch(JSON.stringify(report), /raw-task-id-must-not-escape/);
 });
 
@@ -211,6 +212,7 @@ test("eva idle daemon naming rejection stays sanitized", async (t) => {
 
   assert.equal(report.ok, false);
   assert.ok(report.blockers.includes("thread_name_rejected"));
+  assert.equal(report.actionsPerformed.sourceStoreMutation, true);
   assert.doesNotMatch(JSON.stringify(report), /raw-task-id-must-not-escape|private-rpc-error-must-not-escape/);
 });
 
