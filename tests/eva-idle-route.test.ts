@@ -518,6 +518,29 @@ test("eva idle route hashes a resolved CLI target when invoked through a symlink
   }
 });
 
+test("eva idle route resolves the canonical npm MCP bin symlink before validation", async (t) => {
+  const subject = fakeSubject(t);
+  const npmBinDir = join(dirname(subject.bin), "node_modules", ".bin");
+  mkdirSync(npmBinDir, { recursive: true });
+  const npmBin = join(npmBinDir, "lco-mcp-server");
+  symlinkSync("../../lco-mcp-server.mjs", npmBin);
+
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: npmBin,
+    repoRoot: subject.repoRoot,
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    now: "2026-08-24T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+  assert.equal(report.subject.mcpBinaryHashVerified, true);
+  assert.equal(report.subject.immutablePrefixVerified, true);
+  assert.equal(report.blockers.includes("mcp_binary_not_regular"), false);
+});
+
 test("eva idle route rejects malformed adapter hashes before receipt assignment", async (t) => {
   const subject = fakeSubject(t, { behavior: "malformed-hash" });
   const report = await runEvaIdleRoute({
@@ -535,6 +558,31 @@ test("eva idle route rejects malformed adapter hashes before receipt assignment"
   assert.ok(report.blockers.includes("approval_hash_invalid"));
   assert.equal(report.parameterHashes.dryRunSha256, null);
   assert.equal(report.messageHashes.dryRunSha256, null);
+});
+
+test("eva idle route gives initialize and tools/list their full stage budget after preflight", async (t) => {
+  const subject = fakeSubject(t);
+  let clock = 0;
+  let clockReads = 0;
+  const report = await runEvaIdleRoute({
+    evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
+    mcpBin: subject.bin,
+    ...packageProof(subject),
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    setupClientFactory: async () => setupClient([]),
+    execute: true,
+    initializeListTimeoutMs: 500,
+    initializeListClockForTest: () => { clockReads += 1; return clock; },
+    beforeInitializeListForTest: () => { clock += 1_000; },
+    now: "2026-08-24T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+  assert.ok(clockReads >= 3);
+  assert.equal(report.stages.find((stage) => stage.name === "mcp_initialize")?.status, "passed");
+  assert.equal(report.stages.find((stage) => stage.name === "mcp_tools_list")?.status, "passed");
 });
 
 test("eva idle route rejects a completion that settles at the outer deadline", async (t) => {
@@ -639,6 +687,70 @@ test("eva idle route retains audit storage until the forced MCP close event is c
   assert.ok(snapshotOwner && existsSync(snapshotOwner));
   assert.ok(report.blockers.includes("runtime_root_retained"));
   assert.ok(runtimeRoot && existsSync(runtimeRoot));
+});
+
+test("eva idle route writes a sanitized receipt when audit cleanup fails", async (t) => {
+  const subject = fakeSubject(t);
+  const evidenceDir = tempDir(t, "lco-eva-idle-evidence-");
+  let retainedRoot: string | null = null;
+  t.after(() => {
+    if (retainedRoot && existsSync(retainedRoot)) rmSync(retainedRoot, { recursive: true, force: true });
+  });
+
+  const report = await runEvaIdleRoute({
+    evidenceDir,
+    mcpBin: subject.bin,
+    ...packageProof(subject),
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: CANDIDATE_SHA,
+    setupClientFactory: async () => setupClient([]),
+    spawnFactory: ((...args: Parameters<typeof spawn>) => {
+      const auditPath = (args[2] as { env?: NodeJS.ProcessEnv } | undefined)?.env?.LCO_AUDIT_PATH;
+      retainedRoot = auditPath ? dirname(auditPath) : null;
+      return spawn(...args);
+    }) as typeof spawn,
+    auditRootRemoveForTest: () => { throw new Error("simulated cleanup failure"); },
+    execute: true,
+    now: "2026-08-24T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.includes("audit_cleanup_failed"));
+  assert.ok(report.blockers.includes("audit_boundary_verification_failed"));
+  assert.equal(report.auditBoundary.cleanupStatus, "retained_for_operator");
+  assert.ok(retainedRoot && existsSync(retainedRoot));
+  const receipt = readFileSync(join(evidenceDir, "eva-idle-route.json"), "utf8");
+  assert.ok(receipt.length > 0);
+  assert.doesNotMatch(receipt, new RegExp(retainedRoot!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("eva idle route rejects and redacts a noncanonical candidate SHA before execution", async (t) => {
+  const subject = fakeSubject(t);
+  const evidenceDir = tempDir(t, "lco-eva-idle-evidence-");
+  const calls: string[] = [];
+  const unsafeCandidate = "/tmp/token-shaped-candidate-value";
+
+  const report = await runEvaIdleRoute({
+    evidenceDir,
+    mcpBin: subject.bin,
+    ...packageProof(subject),
+    expectedMcpBinarySha256: subject.sha256,
+    packageVersion: PACKAGE_VERSION,
+    candidateSha: unsafeCandidate,
+    setupClientFactory: async () => setupClient(calls),
+    execute: true,
+    now: "2026-08-24T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.includes("candidate_sha_invalid"));
+  assert.equal(report.candidateSha, null);
+  assert.deepEqual(calls, []);
+  assert.equal(report.actionsPerformed.liveCodexControlRun, false);
+  assert.ok(report.nextSafeCommands.every((command) => command.includes(`--candidate-sha ${CANDIDATE_SHA}`)));
+  const receipt = readFileSync(join(evidenceDir, "eva-idle-route.json"), "utf8");
+  assert.doesNotMatch(receipt, /token-shaped-candidate-value/);
 });
 
 test("eva idle route preserves the first sanitized live rejection reason", async (t) => {
