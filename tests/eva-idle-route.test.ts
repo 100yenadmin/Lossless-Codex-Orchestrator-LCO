@@ -313,6 +313,7 @@ test("eva idle route spawns the verified private package snapshot after an origi
 
 test("eva idle route promotes the verified npm tar snapshot bin to executable before spawn", async (t) => {
   const subject = fakeSubject(t, { tarballBinMode: 0o644 });
+  chmodSync(subject.bin, 0o644);
   const report = await runEvaIdleRoute({
     evidenceDir: tempDir(t, "lco-eva-idle-evidence-"),
     mcpBin: subject.bin,
