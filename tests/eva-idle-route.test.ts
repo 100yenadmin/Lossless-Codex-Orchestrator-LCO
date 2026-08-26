@@ -968,6 +968,16 @@ test("eva idle route rejects and redacts a noncanonical candidate SHA before exe
     )
   );
   assert.ok(report.nextSafeCommands.every((command) => command.startsWith("cd <reviewed-checkout> && ")));
+  assert.ok(
+    report.nextSafeCommands.every((command) =>
+      command.includes(`test "$(git rev-parse HEAD)" = "${report.harness_repo_head}"`)
+    )
+  );
+  assert.ok(
+    report.nextSafeCommands.every((command) =>
+      command.includes('test -z "$(git status --porcelain --untracked-files=all)"')
+    )
+  );
   assert.doesNotMatch(report.nextSafeCommands.join("\n"), /(^|\s)lco qa-lab eva-idle-route\b/);
   const receipt = readFileSync(join(evidenceDir, "eva-idle-route.json"), "utf8");
   assert.doesNotMatch(receipt, /token-shaped-candidate-value/);
