@@ -48,14 +48,18 @@ For the isolated Eva idle path, use the source-head harness against the exact
 immutable installed package and its canonical tarball:
 
 ```bash
-lco qa-lab eva-idle-route \
+LCO_CODEX_TRANSPORT=daemon lco qa-lab eva-idle-route \
   --evidence-dir <evidence-dir>/<date>/eva-idle-route \
   --mcp-bin <exact-package-bin> \
   --package-tarball <canonical-1.7.0.tgz> \
   --package-version 1.7.0 \
-  --candidate-sha <source-head-sha> \
+  --candidate-sha 78bd6e7d4e5656d09e76c4c85d01a85b3515b354 \
   [--execute] --strict
 ```
+
+That candidate value is the harness-pinned immutable 1.7.0 package/tag SHA.
+The harness source head remains separate provenance in the receipt; do not pass
+it as `--candidate-sha`.
 
 Run the strict non-execute ladder first. The execute ladder requires a
 compatible managed Codex daemon and a disposable persistent task created with

@@ -352,9 +352,9 @@ Omitting `LCO_DB_PATH` uses LCO's home-based default. If you set it explicitly,
 use an expanded absolute path because Hermes does not shell-expand `~` inside an
 environment-variable value.
 
-`LCO_CODEX_TRANSPORT` defaults to `stdio`. Set it to `daemon` only after the
-Codex CLI proves that a compatible managed daemon owns the standard socket
-under `CODEX_HOME`, or an explicit absolute `LCO_CODEX_DAEMON_SOCKET`:
+`LCO_CODEX_TRANSPORT` defaults to `stdio`. For the managed Eva operator flow,
+set it to `daemon` only after the Codex CLI proves that a compatible managed
+daemon owns the standard socket under `CODEX_HOME`:
 
 ```bash
 codex --version
@@ -378,6 +378,10 @@ version, process, and socket fingerprint still match.
 The Codex CLI owns daemon lifecycle. LCO only connects to the proven socket: it
 never bootstraps or starts/restarts Codex, never enables Codex Remote Control,
 and never falls back from a requested daemon to stdio.
+`LCO_CODEX_DAEMON_SOCKET` remains a lower-level explicit-socket override, but
+the managed admission sequence above cannot target or certify that override.
+Do not use an explicit socket for Eva activation unless a future supported
+exact-socket ownership and compatibility probe is documented.
 `LCO_CODEX_APP_SERVER_ARGS` applies only to stdio mode.
 
 The remote-control loop is:
