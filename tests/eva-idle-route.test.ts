@@ -967,6 +967,7 @@ test("eva idle route rejects and redacts a noncanonical candidate SHA before exe
       command.includes("node ./dist/packages/cli/src/index.js qa-lab eva-idle-route")
     )
   );
+  assert.ok(report.nextSafeCommands.every((command) => command.startsWith("cd <reviewed-checkout> && ")));
   assert.doesNotMatch(report.nextSafeCommands.join("\n"), /(^|\s)lco qa-lab eva-idle-route\b/);
   const receipt = readFileSync(join(evidenceDir, "eva-idle-route.json"), "utf8");
   assert.doesNotMatch(receipt, /token-shaped-candidate-value/);
