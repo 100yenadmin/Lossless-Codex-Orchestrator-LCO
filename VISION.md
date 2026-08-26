@@ -160,12 +160,12 @@ Prepared-state capabilities for a local OpenClaw agent:
 What a local OpenClaw agent can do today:
 
 - Discover the installed LCO plugin and declared `lco_*` tools.
-- Start from the compact public facade (`lco_prepared_inbox`,
+- Start from the compact public facade (`lco_find`, `lco_prepared_inbox`,
   `lco_describe_ref`, `lco_expand_query`, `lco_recent_sessions`,
-  `lco_attention_inbox`, `lco_project_digest`, `lco_codex_control_dry_run`,
-  and approval-gated `lco_codex_resume_thread`) instead of treating every
-  declared tool as an equal first step. Expert/debug tools remain explicit for
-  detail, proof, and recovery.
+  `lco_attention_inbox`, `lco_project_digest`, `lco_codex_control_route`, and
+  approval-gated `lco_codex_deliver`) instead of treating every declared tool
+  as an equal first step. Expert/debug tools remain explicit for detail, proof,
+  and recovery.
 - Index and search local Codex sessions without reading raw transcripts.
 - Describe a session using metadata, source refs, status fields, plans, finals, touched files, and safe summaries.
 - Expand a selected session or query with bounded metadata, brief, or evidence profiles.
@@ -345,7 +345,7 @@ For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-te
 | Public claims | README/docs/release notes stay inside allowed beta wording | claim audit result |
 | Privacy | Evidence contains no raw session files, SQLite DBs, screenshots, tokens, or secrets | artifact scan result |
 | Source authority | Operating-picture tools distinguish source availability from source ownership | `authorityCoverage`, degraded unavailable-source cards, source-authority profile |
-| Tool facade usability | Agent starts from the 8-tool public facade, then drops to workflow/proof/debug tiers only when the facade returns a reason | `tool-facade-usability-review.json` score movement |
+| Tool facade usability | Agent starts from the 9-tool public facade, then drops to workflow/proof/debug tiers only when the facade returns a reason | `tool-facade-usability-review.json` score movement |
 | Cockpit card presentation | Agent-facing cards separate clean presentation text from source evidence and downgrade unclean extraction | `presentation_cleaned`, `presentation_low_confidence`, public-safe canary tests |
 
 ## Eval Scenarios
