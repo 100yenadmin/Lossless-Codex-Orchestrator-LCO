@@ -518,7 +518,7 @@ export async function runEvaIdleRoute(options: EvaIdleRouteOptions): Promise<Eva
     warnings: uniqueStrings(warnings),
     proofBoundary: "This public-safe operator-only candidate harness proves only the named disposable Eva idle route, opaque dry-run/live acceptance, and bounded read-only completion marker when those stages pass. Declared external dependency artifacts remain outside the package-owned integrity claim. It does not prove Eva runtime safety, Hermes handler/lock/dispatch health, release publication, customer readiness, fleet readiness, or any live action beyond this one disposable task.",
     nextSafeCommands: [
-      `LCO_CODEX_TRANSPORT=daemon lco qa-lab eva-idle-route --evidence-dir <path> --mcp-bin <exact-package-bin> --package-tarball <canonical-1.7.0.tgz> --package-version ${options.packageVersion} --candidate-sha ${EVA_IDLE_ROUTE_CANDIDATE_SHA} [--execute] [--strict]`
+      `npm run build && LCO_CODEX_TRANSPORT=daemon node ./dist/packages/cli/src/index.js qa-lab eva-idle-route --evidence-dir <path> --mcp-bin <exact-package-bin> --package-tarball <canonical-1.7.0.tgz> --package-version ${options.packageVersion} --candidate-sha ${EVA_IDLE_ROUTE_CANDIDATE_SHA} [--execute] [--strict]`
     ]
   };
   try {
