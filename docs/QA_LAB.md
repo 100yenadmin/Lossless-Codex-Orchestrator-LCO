@@ -28,11 +28,15 @@ full-surface release claim:
 node ./dist/packages/cli/src/index.js openclaw tool-smoke --profile lco-full-gateway --session-key agent:main:lco-full-gateway --coverage full --thread-id <public-safe-thread-id> --query "<public-safe-query>" --evidence-path <evidence-dir>/<date>/qa-lab/tool-coverage/openclaw-tool-smoke-full.json --strict
 ```
 
-This full gateway smoke covers all 39 canonical declarations. The public
-facade contains nine canonical tools, including the opaque
-`lco_codex_control_route` and `lco_codex_deliver` path. Folded and direct
-`loo_*` compatibility aliases remain compatibility proof and do not create
-additional release-captain coverage rows.
+This full 68-call gateway smoke covers all 39 canonical declaration rows
+through direct canonical calls or mapped compatibility aliases. Its seven
+canonical consolidated calls are `lco_watchers`, `lco_codex_extract`,
+`lco_prepared_state`, `lco_operating_picture`, `lco_desktop_proof`,
+`lco_session_diff`, and `lco_drive`. The public facade contains nine canonical
+tools, including the opaque `lco_codex_control_route` and
+`lco_codex_deliver` path. Folded and direct `loo_*` compatibility aliases
+remain compatibility proof and do not create additional release-captain
+coverage rows.
 
 For the isolated Eva idle path, use the source-head harness against the exact
 immutable installed package and its canonical tarball:
