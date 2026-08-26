@@ -13,7 +13,7 @@ release-captain tool-coverage command as a fail-closed audit:
 ```bash
 lco qa-lab tool-coverage \
   --evidence-dir <evidence-dir>/<date>/qa-lab/tool-coverage \
-  --tool-smoke-report <evidence-dir>/<date>/qa-lab/tool-coverage/openclaw-tool-smoke.json \
+  --tool-smoke-report <evidence-dir>/<date>/qa-lab/tool-coverage/openclaw-tool-smoke-full.json \
   --coverage-policy full \
   --strict
 ```

@@ -345,7 +345,7 @@ mcp_servers:
     enabled: true
     env:
       LCO_TOOL_PROFILE: standard
-      LCO_CODEX_TRANSPORT: daemon
+      LCO_CODEX_TRANSPORT: stdio
 ```
 
 Omitting `LCO_DB_PATH` uses LCO's home-based default. If you set it explicitly,

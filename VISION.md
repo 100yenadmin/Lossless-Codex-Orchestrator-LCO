@@ -97,9 +97,11 @@ Current target:
   preserve approval and opaque-target checks, keep Desktop tasks on Hermes
   Computer Use, and retain OpenClaw as a separate compatibility path. LCO does
   not bootstrap, restart, or enable Remote Control for Codex.
-- Issue #808's `lco qa-lab eva-idle-route` is a candidate smoke for one
-  disposable idle route. It is source-head harness evidence against an exact
-  immutable package binary, not active Eva allowlist or runtime proof. Keep its
+- Issue #808's `lco qa-lab eva-idle-route` is non-executable shorthand for the
+  reviewed source-head command documented in [docs/QA_LAB.md](docs/QA_LAB.md),
+  not permission to run a global `lco`. The candidate smoke covers one
+  disposable idle route against an exact immutable package binary, not active
+  Eva allowlist or runtime proof. Keep its
   stage ladder explicit: initialize/list 30s, route 15s, dry-run 15s, live
   deliver 15s, and completion/outer idle acceptance 120s; Hermes retains a
   separate 300s per-tool timeout.
