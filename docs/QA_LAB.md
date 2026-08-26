@@ -7,12 +7,13 @@ partial gateway smoke do not prove the full canonical tool surface.
 
 ## Current Gate
 
-Milestone 12 starts with tool coverage:
+The shipped 1.7.0 QA surface has 39 canonical `lco_*` declarations. The
+release-captain tool-coverage gate is:
 
 ```bash
 lco qa-lab tool-coverage \
-  --evidence-dir <evidence-dir>/<date>/m12-ga-qa-lab/tool-coverage \
-  --tool-smoke-report <evidence-dir>/<date>/m12-ga-qa-lab/tool-coverage/openclaw-tool-smoke.json \
+  --evidence-dir <evidence-dir>/<date>/qa-lab/tool-coverage \
+  --tool-smoke-report <evidence-dir>/<date>/qa-lab/tool-coverage/openclaw-tool-smoke.json \
   --coverage-policy full \
   --strict
 ```
@@ -24,14 +25,33 @@ Release-captains must also capture the repeatable full gateway smoke before a
 full-surface release claim:
 
 ```bash
-node ./dist/packages/cli/src/index.js openclaw tool-smoke --profile lco-full-gateway --session-key agent:main:lco-full-gateway --coverage full --thread-id <public-safe-thread-id> --query "<public-safe-query>" --evidence-path <evidence-dir>/<date>/m12-ga-qa-lab/tool-coverage/openclaw-tool-smoke-full.json --strict
+node ./dist/packages/cli/src/index.js openclaw tool-smoke --profile lco-full-gateway --session-key agent:main:lco-full-gateway --coverage full --thread-id <public-safe-thread-id> --query "<public-safe-query>" --evidence-path <evidence-dir>/<date>/qa-lab/tool-coverage/openclaw-tool-smoke-full.json --strict
 ```
 
-This is the full 65-tool gateway smoke: the existing full gateway denominator
-plus the five C1 canonical umbrella calls `lco_watchers`,
-`lco_codex_extract`, `lco_prepared_state`, `lco_operating_picture`, and
-`lco_desktop_proof`. Folded compatibility aliases remain compatibility proof
-and do not create additional release-captain coverage rows.
+This full gateway smoke covers all 39 canonical declarations. The public
+facade contains nine canonical tools, including the opaque
+`lco_codex_control_route` and `lco_codex_deliver` path. Folded and direct
+`loo_*` compatibility aliases remain compatibility proof and do not create
+additional release-captain coverage rows.
+
+For the isolated Eva idle path, use the source-head harness against the exact
+immutable installed package and its canonical tarball:
+
+```bash
+lco qa-lab eva-idle-route \
+  --evidence-dir <evidence-dir>/<date>/eva-idle-route \
+  --mcp-bin <exact-package-bin> \
+  --package-tarball <canonical-1.7.0.tgz> \
+  --package-version 1.7.0 \
+  --candidate-sha <source-head-sha> \
+  [--execute] --strict
+```
+
+Run the strict non-execute ladder first. The execute ladder requires a
+compatible managed Codex daemon and a disposable persistent task created with
+the fixed never-approve, read-only posture. It proves an opaque route, identical
+dry/live bindings, single-use approval, transport acceptance, and separate
+read-only completion; it does not activate an Eva profile by itself.
 
 For a full QA Lab packet, create the run evidence root first, `cd` into it, and
 pass a relative --evidence-dir value from inside the evidence root for each gate.
@@ -94,12 +114,14 @@ For broad/global GA claims, optimize for the full claimed surface:
 Scoped releases may use `--coverage-policy facade` as a diagnostic, but a facade
 pass is not full-surface GA proof.
 
-## Baseline And C1 Consolidation
+## Runtime Acceptance Status
 
-The 1.2.5 release remained an honest scoped stable release. Its latest OpenClaw
-gateway smoke invoked 36 of 60 declared `lco_*` tools. Under M12, that remains
-useful historical evidence but not a full GA proof. C1 folds input-congruent
-read-only families into 34 canonical tools and keeps the old folded `loo_*`
-names as compatibility aliases. The QA Lab denominator is the canonical surface;
-compatibility aliases should prove backward compatibility without creating extra
-coverage rows.
+The immutable 1.7.0 inactive-package ladder passed for the named Eva package
+path. A later managed-daemon admission also passed, but Eva activation did not:
+the required same-conversation 1.6.1 Telegram baseline produced no exact reply
+after its one bounded gateway recovery. The candidate-created daemon was
+stopped, Eva remained on exact 1.6.1 with daemon transport absent, and issues
+[#808](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/808)
+and [#799](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/799)
+remain the lifecycle source of truth. This result is not Eva `runtime_safe` and
+does not weaken the baseline-before-activation gate.

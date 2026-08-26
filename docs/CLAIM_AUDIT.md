@@ -55,8 +55,10 @@ across the orchestrator surfaces that share the same local index.
 - Eva/Hermes uses an explicit persistent Unix-socket daemon route with no stdio
   fallback; stdio MCP smoke/readiness proves compatibility only, not Eva
   runtime/customer proof.
-- The required Eva surface is sixteen tools. Daemon control is local-only,
-  opaque-targeted, and does not start/restart Codex or enable Remote Control.
+- The required Eva surface is sixteen tools. Daemon control is local-only and
+  opaque-targeted. LCO does not start/restart Codex or enable Remote Control;
+  an operator may admit an absent compatible daemon once through the supported
+  `codex app-server daemon` lifecycle before configuring Eva.
 - OpenClaw loopback/stdio compatibility is separate. Desktop-owned tasks remain
   on Hermes Computer Use with window, composer, and direction verification.
 - Live Codex control is approval-gated by a dry-run audit id; the public demo stops at dry-run unless the user explicitly approves a target thread.
@@ -68,6 +70,13 @@ across the orchestrator surfaces that share the same local index.
   [local model compaction canary](LOCAL_MODEL_COMPACTION_CANARY.md) validation
   over approved prepared-card and summary-leaf refs; it does not call a model,
   read raw transcripts, feed current `safe_text`, or claim true compaction.
+
+The current Eva runtime gate remains open. The immutable 1.7.0 inactive-package
+ladder and a compatible managed-daemon admission passed, but the required exact
+same-conversation 1.6.1 Telegram baseline did not reply after its one bounded
+gateway recovery. Eva was not activated and remained on exact 1.6.1 with daemon
+transport absent. This is a runtime blocker, not an outage claim, and does not
+change the published 1.7.0 package claim above.
 
 Compaction hook sidecars are marker-only. Public and release-facing copy may say
 `compaction observed`, but must not claim the generated compaction summary was

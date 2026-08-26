@@ -352,11 +352,32 @@ Omitting `LCO_DB_PATH` uses LCO's home-based default. If you set it explicitly,
 use an expanded absolute path because Hermes does not shell-expand `~` inside an
 environment-variable value.
 
-`LCO_CODEX_TRANSPORT` defaults to `stdio`. Set it to `daemon` only when the
-local managed Codex daemon is already running. LCO connects through the
-standard socket under `CODEX_HOME`, or an explicit absolute
-`LCO_CODEX_DAEMON_SOCKET`. It never starts or restarts Codex, never enables
-Codex Remote Control, and never falls back from a requested daemon to stdio.
+`LCO_CODEX_TRANSPORT` defaults to `stdio`. Set it to `daemon` only after the
+Codex CLI proves that a compatible managed daemon owns the standard socket
+under `CODEX_HOME`, or an explicit absolute `LCO_CODEX_DAEMON_SOCKET`:
+
+```bash
+codex --version
+codex app-server daemon version
+```
+
+If the version probe reports that no managed daemon is present, the operator
+may start one once through the supported Codex lifecycle and repeat the probe:
+
+```bash
+codex app-server daemon start
+codex app-server daemon version
+```
+
+Reuse a compatible listener that was already present and never stop it as part
+of an LCO rollback. If a listener is present but its owner or compatibility
+cannot be classified, stop before changing the Eva profile. A daemon started
+for a bounded candidate may be stopped only after its original executable,
+version, process, and socket fingerprint still match.
+
+The Codex CLI owns daemon lifecycle. LCO only connects to the proven socket: it
+never bootstraps or starts/restarts Codex, never enables Codex Remote Control,
+and never falls back from a requested daemon to stdio.
 `LCO_CODEX_APP_SERVER_ARGS` applies only to stdio mode.
 
 The remote-control loop is:

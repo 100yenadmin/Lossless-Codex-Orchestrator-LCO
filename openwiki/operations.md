@@ -86,8 +86,8 @@ The QA Lab is the release-captain surface for proving LCO works as a real instal
 
 ```bash
 lco qa-lab tool-coverage \
-  --evidence-dir <evidence-dir>/<date>/m12-ga-qa-lab/tool-coverage \
-  --tool-smoke-report <evidence-dir>/<date>/m12-ga-qa-lab/tool-coverage/openclaw-tool-smoke.json \
+  --evidence-dir <evidence-dir>/<date>/qa-lab/tool-coverage \
+  --tool-smoke-report <evidence-dir>/<date>/qa-lab/tool-coverage/openclaw-tool-smoke.json \
   --coverage-policy full \
   --strict
 ```
@@ -107,7 +107,7 @@ node ./dist/packages/cli/src/index.js openclaw tool-smoke \
   --strict
 ```
 
-The full gateway smoke covers the canonical tool catalog and compatibility aliases, including the five C1 canonical umbrella calls: `lco_watchers`, `lco_codex_extract`, `lco_prepared_state`, `lco_operating_picture`, and `lco_desktop_proof`.
+The full gateway smoke covers all 39 canonical `lco_*` declarations. The public facade has nine canonical tools, including `lco_codex_control_route` and `lco_codex_deliver`; `loo_*` aliases are compatibility proof and do not add coverage rows.
 
 ### QA Lab Subcommands
 
@@ -119,6 +119,7 @@ The full gateway smoke covers the canonical tool catalog and compatibility alias
 | `qa-lab run` | Full QA Lab run |
 | `qa-lab live-control-matrix` | Live control action matrix |
 | `qa-lab cli-mcp-smoke` | CLI/MCP product smoke |
+| `qa-lab eva-idle-route` | Immutable-package identity plus bounded Eva daemon route/delivery/completion proof |
 | `qa-lab judge` | Judge review |
 | `qa-lab adversarial-review` | Adversarial review |
 | `qa-lab workflow` | Workflow coverage |
@@ -170,9 +171,33 @@ CodeQL: `.github/workflows/codeql.yml`.
 - Quote only counts, classifications, refs, hashes, and blocker codes from public-safe reports.
 - For multiple gate reports, create the dated evidence root, `cd` into it, and pass relative `--evidence-dir` values.
 
+## Managed Daemon Admission
+
+Before configuring Eva with `LCO_CODEX_TRANSPORT=daemon`, use the Codex CLI to
+classify the standard socket:
+
+```bash
+codex --version
+codex app-server daemon version
+```
+
+Reuse a compatible daemon that is already present. If none is present, the
+operator may run one bounded `codex app-server daemon start` and then repeat the
+version probe. Do not use bootstrap, Remote Control, or a Codex restart. Do not
+stop a pre-existing daemon. A candidate-created daemon may be stopped only when
+its executable, version, process, and socket fingerprint still match the
+recorded start.
+
+The current Eva acceptance attempt proved a compatible managed daemon but
+stopped before activation because the required 1.6.1 Telegram baseline did not
+return the exact same-conversation reply after its one bounded recovery. Eva
+remained on 1.6.1 with daemon transport absent. Issues #808 and #799 remain the
+authoritative runtime gate; no `runtime_safe` claim follows from daemon or
+inactive-package proof alone.
+
 ## Versioning
 
-- Current version: `1.5.0` (in `package.json`).
+- Current version: `1.7.0` (in `package.json`).
 - Changelog: `docs/releases/CHANGELOG.md` — one line per released version, newest first.
 - Release notes: `docs/releases/RELEASE_NOTES_<version>.md`.
 - The `prepare` script runs `npm run build` before publish.

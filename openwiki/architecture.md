@@ -8,7 +8,7 @@ LCO is a TypeScript monorepo compiled to a single npm package. All source compil
 packages/
   core/         — SQLite database, Codex JSONL indexer, FTS5 search, prepared state, summary leaves
   adapters/     — Codex JSON-RPC client, desktop backend, method policy, redaction, audit store
-  mcp-server/   — MCP tool registry (35 canonical lco_* tools plus loo_* compatibility aliases), tool tiers, alias management
+  mcp-server/   — MCP tool registry (39 canonical lco_* tools plus loo_* compatibility aliases), tool tiers, alias management
   cli/          — CLI dispatch (`lco find`, search, describe, expand), release/QA gates, smoke harnesses, onboarding
   openclaw-plugin/ — OpenClaw plugin entry (defineToolPlugin wrapper)
   runtime/      — Env helpers, Node.js version guard
@@ -82,7 +82,11 @@ Ranking blends BM25 text score, recency, and identifier matching. FTS term cap i
 
 ### Codex JSON-RPC (`codex-jsonrpc.ts`)
 
-Stdio-based JSON-RPC client for the Codex app server. Handles `initialize`, `tools/list`, `tools/call`, turn resolution, and notification routing.
+JSON-RPC client for the Codex app server. The default transport is stdio; the
+Eva remote-control path uses a compatible Codex CLI-managed Unix-socket daemon.
+The client handles `initialize`, `tools/list`, `tools/call`, turn resolution,
+and notification routing. LCO connects to the daemon but does not own Codex
+lifecycle, bootstrap it, enable Remote Control, or fall back silently to stdio.
 
 ### Method Policy (`policy.ts`)
 
@@ -121,8 +125,12 @@ Redacts credential strings and generic `/Users/<name>` paths (converted to `~/..
 5. `lco_recent_sessions` — Recent/active session cards.
 6. `lco_attention_inbox` — Compact attention queue.
 7. `lco_project_digest` — Project-level handoff brief.
-8. `lco_codex_control_dry_run` — Exact action hashes and approval packet.
-9. `lco_codex_resume_thread` — Live resume after matching dry-run approval.
+8. `lco_codex_control_route` — Resolve one daemon-owned task to an expiring opaque target, or require Desktop observation.
+9. `lco_codex_deliver` — Use the same opaque target and bindings for default dry-run and approved idle-send or active-steer delivery.
+
+Transport acceptance and task completion are separate. A successful live
+`lco_codex_deliver` proves only that Codex accepted the action; the caller must
+read the known disposable task separately to prove its completion marker.
 
 ## CLI (`packages/cli/src/`)
 
@@ -141,7 +149,7 @@ Redacts credential strings and generic `/Users/<name>` paths (converted to `~/..
 | **Smoke** | `codex live-control-smoke`, `openclaw dogfood`, `openclaw tool-smoke`, `openclaw published-smoke`, `openclaw live-control-smoke`, `openclaw post-action-refresh-smoke` |
 | **Evals** | `eval retrieval`, `eval scenarios`, `scorecards sweep`, `runtime sweep-summary` |
 | **Release** | `release preflight`, `release bundle`, `release status`, `release finalization-status`, `release general-readiness`, `release ga-smoke`, `release demo-status` |
-| **QA Lab** | `qa-lab tool-coverage`, `qa-lab desktop-contract`, `qa-lab privacy-scan`, `qa-lab run`, `qa-lab live-control-matrix`, `qa-lab cli-mcp-smoke`, `qa-lab judge`, `qa-lab adversarial-review`, `qa-lab workflow` |
+| **QA Lab** | `qa-lab tool-coverage`, `qa-lab desktop-contract`, `qa-lab privacy-scan`, `qa-lab run`, `qa-lab live-control-matrix`, `qa-lab cli-mcp-smoke`, `qa-lab eva-idle-route`, `qa-lab judge`, `qa-lab adversarial-review`, `qa-lab workflow` |
 | **UI** | `ui local-mac-search` |
 
 ## OpenClaw Plugin (`packages/openclaw-plugin/src/`)
