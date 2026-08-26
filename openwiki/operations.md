@@ -107,7 +107,13 @@ node ./dist/packages/cli/src/index.js openclaw tool-smoke \
   --strict
 ```
 
-The full gateway smoke covers all 39 canonical `lco_*` declarations. The public facade has nine canonical tools, including `lco_codex_control_route` and `lco_codex_deliver`; `loo_*` aliases are compatibility proof and do not add coverage rows.
+The full 68-call gateway smoke covers all 39 canonical `lco_*` declaration
+rows through direct canonical calls or mapped compatibility aliases. Its seven
+canonical consolidated calls are `lco_watchers`, `lco_codex_extract`,
+`lco_prepared_state`, `lco_operating_picture`, `lco_desktop_proof`,
+`lco_session_diff`, and `lco_drive`. The public facade has nine canonical
+tools, including `lco_codex_control_route` and `lco_codex_deliver`; `loo_*`
+aliases do not add coverage rows.
 
 ### QA Lab Subcommands
 

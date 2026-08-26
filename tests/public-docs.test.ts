@@ -205,12 +205,14 @@ test("release-captain docs include repeatable full gateway coverage smoke", () =
 
   assert.match(releaseDocs, /release-captain/i);
   assert.match(releaseDocs, /openclaw tool-smoke[^\n]+--coverage full/i);
-  assert.match(releaseDocs, /full\s+65-tool|65-tool\s+gateway/i);
+  assert.match(releaseDocs, /full\s+68-call|68-call\s+gateway/i);
   assert.match(releaseDocs, /lco_watchers/);
   assert.match(releaseDocs, /lco_codex_extract/);
   assert.match(releaseDocs, /lco_prepared_state/);
   assert.match(releaseDocs, /lco_operating_picture/);
   assert.match(releaseDocs, /lco_desktop_proof/);
+  assert.match(releaseDocs, /lco_session_diff/);
+  assert.match(releaseDocs, /lco_drive/);
 });
 
 test("control-plane threat model stays in operator docs, not public release notes", () => {
