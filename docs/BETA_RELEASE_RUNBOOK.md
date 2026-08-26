@@ -284,11 +284,23 @@ Trusted Publishing proof.
 ### Eva idle-route candidate ladder
 
 Issue #808 adds one operator-only source-head smoke for the inactive immutable
-1.7.0 package. Build the reviewed checkout and run
-`LCO_CODEX_TRANSPORT=daemon node ./dist/packages/cli/src/index.js qa-lab eva-idle-route`
-with the exact package-owned MCP binary and pinned candidate SHA; do not use a
-globally installed `lco` harness. The default is non-executing and `--execute`
-permits exactly one disposable live idle send. The ladder is initialize/list
+1.7.0 package. Build the reviewed checkout and run its CLI against the exact
+package-owned MCP binary and pinned candidate SHA; do not use a globally
+installed `lco` harness:
+
+```bash
+npm run build
+LCO_CODEX_TRANSPORT=daemon node ./dist/packages/cli/src/index.js qa-lab eva-idle-route \
+  --evidence-dir <evidence-dir>/<date>/eva-idle-route \
+  --mcp-bin <exact-package-bin> \
+  --package-tarball <canonical-1.7.0.tgz> \
+  --package-version 1.7.0 \
+  --candidate-sha 78bd6e7d4e5656d09e76c4c85d01a85b3515b354 \
+  [--execute] --strict
+```
+
+The default is non-executing and `--execute` permits exactly one disposable
+live idle send. The ladder is initialize/list
 (30s), route (15s), deliver dry-run (15s), live deliver (15s), and a bounded
 completion/overall acceptance window of 120s. Hermes keeps its separate 300s
 per-tool timeout, so an outer timeout is a recorded boundary, not a diagnosis.
