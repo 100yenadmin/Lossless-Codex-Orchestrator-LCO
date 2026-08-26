@@ -119,6 +119,8 @@ aliases do not add coverage rows.
 The OpenClaw smoke does not invoke those two route/deliver rows. The separate
 Eva idle-route ladder exercises them for its exact inactive package path, but
 does not turn that evidence into OpenClaw gateway or full-surface proof.
+Consequently, the current 68-call report is a fail-closed 37/39 input to
+`--coverage-policy full --strict`, not a passing full-surface gate.
 
 ### QA Lab Subcommands
 

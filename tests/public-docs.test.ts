@@ -215,8 +215,20 @@ test("release-captain docs include repeatable full gateway coverage smoke", () =
   assert.match(releaseDocs, /lco_desktop_proof/);
   assert.match(releaseDocs, /lco_session_diff/);
   assert.match(releaseDocs, /lco_drive/);
-  assert.match(qaLab, /LCO_CODEX_TRANSPORT=daemon\s+lco qa-lab eva-idle-route/i);
+  assert.match(qaLab, /37 of the 39[\s\S]+must remain[\s\S]+blocked at 37\/39/i);
+  assert.match(qaLab, /LCO_CODEX_TRANSPORT=daemon\s+node \.\/dist\/packages\/cli\/src\/index\.js qa-lab eva-idle-route/i);
   assert.match(qaLab, /--candidate-sha\s+78bd6e7d4e5656d09e76c4c85d01a85b3515b354/i);
+  assert.doesNotMatch(qaLab, /LCO_CODEX_TRANSPORT=daemon\s+lco qa-lab eva-idle-route/i);
+});
+
+test("operator control docs re-route before interrupting an idle send", () => {
+  const setup = read("docs/SETUP.md");
+  const workflows = read("openwiki/workflows.md");
+  const operatorDocs = `${setup}\n${workflows}`;
+
+  assert.match(operatorDocs, /before[^\n]+interrupt[\s\S]+route[^\n]+again[\s\S]+fresh active, turn-bound/i);
+  assert.match(operatorDocs, /never reuse[\s\S]+pre-delivery[^\n]+target/i);
+  assert.doesNotMatch(operatorDocs, /interrupt[^\n]+same opaque target/i);
 });
 
 test("control-plane threat model stays in operator docs, not public release notes", () => {

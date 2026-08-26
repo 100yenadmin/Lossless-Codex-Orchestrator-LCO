@@ -119,9 +119,12 @@ uses the same bindings for dry-run and live delivery:
 4. The exact same `lco_codex_deliver` call is repeated with `dry_run:false` and
    the matching single-use `approval_audit_id`; LCO starts an idle turn or
    steers the matching active turn.
-5. `lco_codex_interrupt_thread` uses the same opaque target for a separately
-   approved, turn-bound interrupt.
-6. After transport acceptance, read the known disposable task separately to
+5. Immediately before interrupt, call `lco_codex_control_route` again and
+   require a fresh active, turn-bound target. Never reuse the pre-delivery idle
+   target after a send changes task state.
+6. `lco_codex_interrupt_thread` uses that fresh target for a separately
+   dry-run and approved interrupt.
+7. After transport acceptance, read the known disposable task separately to
    prove its completion marker. Acceptance is never completion proof.
 
 Lower-level control tools remain available outside the compact facade, but

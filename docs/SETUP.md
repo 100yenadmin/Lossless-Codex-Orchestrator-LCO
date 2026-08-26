@@ -392,9 +392,13 @@ The remote-control loop is:
 3. Repeat the exact call with `dry_run:false` and the matching
    `approval_audit_id`. LCO sends to an idle task or steers the matching active
    turn after revalidating ownership and state.
-4. Use `lco_codex_interrupt_thread` with the same opaque `target_ref` for an
-   approved interrupt.
-5. If the route is `desktop_observation_required`, use Hermes
+4. Immediately before an approved interrupt, call
+   `lco_codex_control_route` again and require a fresh active, turn-bound
+   `target_ref`. An idle send changes task state, so never reuse its
+   pre-delivery target for interrupt.
+5. Use `lco_codex_interrupt_thread` with that fresh target for a separately
+   dry-run and approved interrupt.
+6. If the route is `desktop_observation_required`, use Hermes
    `computer_use` to verify and operate the Codex Desktop window. Do not assume
    the managed daemon owns a Desktop task.
 
@@ -449,7 +453,8 @@ replace the active Eva/Hermes runtime gate. Run it with the exact immutable
 package-owned MCP binary:
 
 ```bash
-LCO_CODEX_TRANSPORT=daemon lco qa-lab eva-idle-route \
+npm run build
+LCO_CODEX_TRANSPORT=daemon node ./dist/packages/cli/src/index.js qa-lab eva-idle-route \
   --evidence-dir <path> \
   --mcp-bin <exact-package-bin> \
   --package-tarball <canonical-1.7.0.tgz> \
