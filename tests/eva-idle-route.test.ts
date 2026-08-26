@@ -961,6 +961,13 @@ test("eva idle route rejects and redacts a noncanonical candidate SHA before exe
   assert.deepEqual(calls, []);
   assert.equal(report.actionsPerformed.liveCodexControlRun, false);
   assert.ok(report.nextSafeCommands.every((command) => command.includes(`--candidate-sha ${CANDIDATE_SHA}`)));
+  assert.ok(report.nextSafeCommands.some((command) => command.includes("npm run build")));
+  assert.ok(
+    report.nextSafeCommands.some((command) =>
+      command.includes("node ./dist/packages/cli/src/index.js qa-lab eva-idle-route")
+    )
+  );
+  assert.doesNotMatch(report.nextSafeCommands.join("\n"), /(^|\s)lco qa-lab eva-idle-route\b/);
   const receipt = readFileSync(join(evidenceDir, "eva-idle-route.json"), "utf8");
   assert.doesNotMatch(receipt, /token-shaped-candidate-value/);
 });
