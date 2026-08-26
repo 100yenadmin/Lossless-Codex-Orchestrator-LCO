@@ -284,8 +284,10 @@ Trusted Publishing proof.
 ### Eva idle-route candidate ladder
 
 Issue #808 adds one operator-only source-head smoke for the inactive immutable
-1.7.0 package. Run `lco qa-lab eva-idle-route` with the exact package-owned MCP
-binary and the candidate SHA; the default is non-executing and `--execute`
+1.7.0 package. Build the reviewed checkout and run
+`LCO_CODEX_TRANSPORT=daemon node ./dist/packages/cli/src/index.js qa-lab eva-idle-route`
+with the exact package-owned MCP binary and pinned candidate SHA; do not use a
+globally installed `lco` harness. The default is non-executing and `--execute`
 permits exactly one disposable live idle send. The ladder is initialize/list
 (30s), route (15s), deliver dry-run (15s), live deliver (15s), and a bounded
 completion/overall acceptance window of 120s. Hermes keeps its separate 300s

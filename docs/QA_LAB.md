@@ -7,8 +7,8 @@ partial gateway smoke do not prove the full canonical tool surface.
 
 ## Current Gate
 
-The shipped 1.7.0 QA surface has 39 canonical `lco_*` declarations. The
-release-captain tool-coverage gate is:
+The shipped 1.7.0 QA surface has 39 canonical `lco_*` declarations. Use the
+release-captain tool-coverage command as a fail-closed audit:
 
 ```bash
 lco qa-lab tool-coverage \
@@ -43,12 +43,17 @@ The two canonical rows not invoked by this OpenClaw smoke are
 `lco_codex_control_route` and `lco_codex_deliver`. The separate Eva idle-route
 ladder below exercises them for its exact inactive package path; that evidence
 does not become OpenClaw gateway coverage or, by itself, a full-surface claim.
+With the current 68-call report, `--coverage-policy full --strict` must remain
+blocked at 37/39. Do not report a passing full-surface gate until a supported
+gateway report supplies product evidence for both missing rows.
 
-For the isolated Eva idle path, use the source-head harness against the exact
-immutable installed package and its canonical tarball:
+For the isolated Eva idle path, build the exact reviewed source checkout and
+run that checkout's CLI harness against the immutable installed package and its
+canonical tarball:
 
 ```bash
-LCO_CODEX_TRANSPORT=daemon lco qa-lab eva-idle-route \
+npm run build
+LCO_CODEX_TRANSPORT=daemon node ./dist/packages/cli/src/index.js qa-lab eva-idle-route \
   --evidence-dir <evidence-dir>/<date>/eva-idle-route \
   --mcp-bin <exact-package-bin> \
   --package-tarball <canonical-1.7.0.tgz> \
@@ -59,7 +64,8 @@ LCO_CODEX_TRANSPORT=daemon lco qa-lab eva-idle-route \
 
 That candidate value is the harness-pinned immutable 1.7.0 package/tag SHA.
 The harness source head remains separate provenance in the receipt; do not pass
-it as `--candidate-sha`.
+it as `--candidate-sha` or substitute a globally installed `lco` command for
+the reviewed source-head entry point.
 
 Run the strict non-execute ladder first. The execute ladder requires a
 compatible managed Codex daemon and a disposable persistent task created with
