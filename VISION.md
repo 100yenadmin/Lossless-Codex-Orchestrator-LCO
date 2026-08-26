@@ -92,16 +92,22 @@ Current target:
   doctrine belongs in [docs/CLAIM_AUDIT.md](docs/CLAIM_AUDIT.md),
   [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md), QA Lab reports, issue
   comments, and [docs/BETA_RELEASE_RUNBOOK.md](docs/BETA_RELEASE_RUNBOOK.md).
-- Close the 1.7 Eva runtime gate without widening it: use the existing
-  Codex-owned daemon, preserve approval and opaque-target checks, keep Desktop
-  tasks on Hermes Computer Use, and retain OpenClaw as a separate compatibility
-  path.
+- Close the 1.7 Eva runtime gate without widening it: reuse a compatible
+  Codex CLI-managed daemon or admit one through the supported daemon lifecycle,
+  preserve approval and opaque-target checks, keep Desktop tasks on Hermes
+  Computer Use, and retain OpenClaw as a separate compatibility path. LCO does
+  not bootstrap, restart, or enable Remote Control for Codex.
 - Issue #808's `lco qa-lab eva-idle-route` is a candidate smoke for one
   disposable idle route. It is source-head harness evidence against an exact
   immutable package binary, not active Eva allowlist or runtime proof. Keep its
   stage ladder explicit: initialize/list 30s, route 15s, dry-run 15s, live
   deliver 15s, and completion/outer idle acceptance 120s; Hermes retains a
   separate 300s per-tool timeout.
+- Managed-daemon admission and the inactive 1.7.0 ladder have passed for the
+  named local path, but Eva activation remains blocked on its required
+  same-conversation Telegram baseline. Eva therefore remains on 1.6.1 and no
+  `runtime_safe` claim has been earned; issues #808 and #799 remain the
+  lifecycle source of truth.
 - Treat `lco qa-lab tool-coverage --coverage-policy full --strict` as the
   full-surface GA gate over the canonical tool surface. Missing product evidence
   is a blocker unless release copy explicitly excludes that tool or workflow.

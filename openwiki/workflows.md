@@ -107,21 +107,27 @@ Each Codex thread gets a card with:
 - `lco_operating_picture` with `kind: "collaboration_next_steps"` — Exact next bounded tool call after the cockpit. Read-only `execute=false` suggestions.
 - `lco_operating_picture` with `kind: "active_thread_state"` — Compact read-only answer about which active threads are running, blocked, stale, or need a nudge.
 
-## Dry-Run and Live Control
+## Opaque Route and Live Control
 
-### Dry-Run Boundary
+Eva's supported remote-control path keeps raw Codex identifiers private and
+uses the same bindings for dry-run and live delivery:
 
-Live Codex control (resume, send, steer, interrupt) is **always** preceded by a dry-run packet:
+1. `lco_codex_control_route` resolves one daemon-owned idle or active task to an
+   expiring opaque `target_ref`, or returns `desktop_observation_required`.
+2. `lco_codex_deliver` defaults to dry-run and produces the approval packet.
+3. The orchestrator presents that packet for approval.
+4. The exact same `lco_codex_deliver` call is repeated with `dry_run:false` and
+   the matching single-use `approval_audit_id`; LCO starts an idle turn or
+   steers the matching active turn.
+5. `lco_codex_interrupt_thread` uses the same opaque target for a separately
+   approved, turn-bound interrupt.
+6. After transport acceptance, read the known disposable task separately to
+   prove its completion marker. Acceptance is never completion proof.
 
-1. `lco_codex_control_dry_run` — Produces exact target, action, message hash, and `approval_audit_id`.
-2. The orchestrator agent shows the packet for approval.
-3. Only after matching approval, `lco_codex_resume_thread` (or equivalent) executes the live action.
-
-The dry-run packet includes:
-- Exact thread ID and action
-- Message hash
-- `approval_audit_id` (HMAC-bound)
-- `expected_turn_id` for turn-bound safety
+Lower-level control tools remain available outside the compact facade, but
+they preserve the same never-approve, read-only posture and approval boundary.
+Public evidence keeps opaque refs, hashes, reason classes, and timings—not raw
+thread IDs, messages, or RPC errors.
 
 ### Method Policy
 
@@ -155,21 +161,27 @@ LCO supports watcher specs for monitoring external checks:
 
 ## Desktop Fallback
 
-When Codex Desktop collaboration is not directly visible, LCO provides:
+When the daemon route reports `desktop_observation_required`, Eva may use its
+Hermes `computer_use` fallback only as a separate, last acceptance lane. The
+operator prepares one exact disposable Codex window and task with an empty
+composer, then yields the Desktop. Eva's first observation must match that
+window, task, and composer before one harmless marker is typed and sent once.
+A fresh product-owned observation must prove the resulting turn.
 
-- `lco_desktop_proof` with `check: "coherence"` — Check Desktop visibility before making any Desktop visibility claim.
-- `lco_desktop_proof` with `check: "fallback_status"` — Inspect CUA-first and Peekaboo-secondary readiness.
-- `lco_desktop_proof` with `check: "see"` / `lco_desktop_act` — Desktop see/proof and dry-run action paths.
-
-**Caveat:** Desktop fallback proof is action-bound. Do not claim generic GUI mutation. `cli_visible` or app-server-visible is not the same as Codex Desktop-visible collaboration.
+Classify the result as passed, product failure, contaminated, inconclusive, or
+harness failure. Contamination before action permits a new yield; an executed
+or indeterminate send is never retried. This is action-bound LCO/Eva fallback
+evidence, not generic macOS access or current Mac Access `desktop_*`
+certification. `cli_visible` or app-server-visible is not the same as a
+product-owned Desktop observation.
 
 ## Agent Skill Playbook
 
 The full agent-facing playbook is in [`skills/lossless-openclaw-orchestrator/SKILL.md`](../skills/lossless-openclaw-orchestrator/SKILL.md). Key principles:
 
-1. Start with the compact public facade (9 tools).
+1. Start with the compact public facade (9 canonical tools).
 2. Prefer `lco_*` describe/expand/extract tools over reading raw transcripts.
 3. Keep LCO local-only unless the user explicitly exports a public-safe report.
 4. Preserve Codex approval and sandbox gates.
-5. Live resume/send/steer/interrupt require matching dry-run and `approval_audit_id`.
+5. Live delivery and interrupt require matching dry-run bindings and a single-use `approval_audit_id`.
 6. Use `workflow_detail`, `proof_debug`, and `internal_low_level` tools only when the facade output or a proof/debug task gives a specific reason.
