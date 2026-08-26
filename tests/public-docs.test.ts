@@ -64,6 +64,8 @@ test("setup guide covers install, local indexing, OpenClaw, MCP, and troubleshoo
     /lco describe/,
     /lco expand/,
     /lco-mcp-server/,
+    /managed Eva operator flow[\s\S]+standard socket under `CODEX_HOME`/i,
+    /explicit-socket override[\s\S]+cannot target or certify/i,
     /OpenClaw/,
     /lco openclaw published-smoke/,
     /--binary-probe-report binary-probe\.json/,
@@ -213,6 +215,8 @@ test("release-captain docs include repeatable full gateway coverage smoke", () =
   assert.match(releaseDocs, /lco_desktop_proof/);
   assert.match(releaseDocs, /lco_session_diff/);
   assert.match(releaseDocs, /lco_drive/);
+  assert.match(qaLab, /LCO_CODEX_TRANSPORT=daemon\s+lco qa-lab eva-idle-route/i);
+  assert.match(qaLab, /--candidate-sha\s+78bd6e7d4e5656d09e76c4c85d01a85b3515b354/i);
 });
 
 test("control-plane threat model stays in operator docs, not public release notes", () => {
