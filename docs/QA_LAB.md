@@ -140,11 +140,13 @@ The final-main immutable 1.7.0 inactive-package ladder passed for the named Eva
 package path through a compatible pre-existing managed daemon. A distinct
 Telegram readiness marker and separate 1.6.1 baseline passed, so Eva activated
 the canonical 1.7.0 server and passed gateway, 80-tool MCP, and equal
-sixteen-tool allowlist health. The one #808 Telegram canary produced no reply
+sixteen-tool allowlist health. The one #799 runtime-gate Telegram canary
+produced no reply
 within its 120-second acceptance window, so the fixed rollback restored exact
 1.6.1, absent daemon transport, gateway, 76-tool MCP, equal allowlists, and a
 same-conversation health reply. The pre-existing daemon was never stopped.
-Issues [#808](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/808)
-and [#799](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/799)
-remain the lifecycle source of truth. This result is not Eva `runtime_safe` and
-does not weaken the baseline-before-activation gate.
+Issue [#799](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/799)
+remains the runtime lifecycle source of truth, while
+[#808](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/808)
+retains only its bounded idle-route diagnostic evidence. This result is not Eva
+`runtime_safe` and does not weaken the baseline-before-activation gate.
