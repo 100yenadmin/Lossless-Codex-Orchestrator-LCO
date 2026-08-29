@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
@@ -123,6 +124,36 @@ test("Hermes docs keep stdio first-run separate from managed-daemon admission", 
   assert.match(operations, /\.\.\/docs\/SETUP\.md#managed-daemon-admission-and-rollback/);
   assert.match(operations, /byte-identical/i);
   assert.match(operations, /forbidden for a pre-existing or\s+unclassified listener/i);
+});
+
+test("managed-daemon rollback reaches stop only for a matching candidate-created fingerprint", () => {
+  const setup = read("docs/SETUP.md");
+  const rollback = setup.match(/```bash\n(if test "\$daemon_origin"[\s\S]*?)\n```/);
+  assert.ok(rollback, "setup must contain the executable conditional-stop block");
+
+  function run(origin: string, diffStatus: 0 | 1) {
+    const script = `
+daemon_origin=${JSON.stringify(origin)}
+daemon_receipt_dir=/private/original
+daemon_recheck_dir=/private/recheck
+diff() { return ${diffStatus}; }
+codex() { printf 'codex:%s\\n' "$*"; }
+${rollback[1]}
+`;
+    return spawnSync("zsh", ["-c", script], { encoding: "utf8" });
+  }
+
+  const preexisting = run("preexisting", 0);
+  assert.notEqual(preexisting.status, 0);
+  assert.doesNotMatch(preexisting.stdout, /app-server daemon stop/);
+
+  const mismatch = run("candidate-created", 1);
+  assert.notEqual(mismatch.status, 0);
+  assert.doesNotMatch(mismatch.stdout, /app-server daemon stop/);
+
+  const exactMatch = run("candidate-created", 0);
+  assert.equal(exactMatch.status, 0);
+  assert.match(exactMatch.stdout, /^codex:app-server daemon stop\n$/);
 });
 
 test("public control docs use the route and identical-delivery facade", () => {

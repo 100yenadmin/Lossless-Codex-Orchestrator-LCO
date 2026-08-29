@@ -414,9 +414,13 @@ into a second mode-600 directory and proving every fingerprint file is byte-for-
 byte identical to the original:
 
 ```bash
-test "$daemon_origin" = 'candidate-created'
-diff -rq "$daemon_receipt_dir" "$daemon_recheck_dir"
-codex app-server daemon stop
+if test "$daemon_origin" = 'candidate-created' && \
+  diff -rq "$daemon_receipt_dir" "$daemon_recheck_dir"; then
+  codex app-server daemon stop
+else
+  printf '%s\n' 'daemon stop blocked: origin or fingerprint mismatch' >&2
+  false
+fi
 ```
 
 Do not run the stop command if `diff` reports any change, the origin is
