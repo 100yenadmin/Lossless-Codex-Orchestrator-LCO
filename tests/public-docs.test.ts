@@ -92,6 +92,59 @@ test("setup guide covers install, local indexing, OpenClaw, MCP, and troubleshoo
   }
 });
 
+test("Hermes docs keep stdio first-run separate from managed-daemon admission", () => {
+  const readme = read("README.md");
+  const setup = read("docs/SETUP.md");
+  const operations = read("openwiki/operations.md");
+
+  assert.match(readme, /Hermes configuration[\s\S]+LCO_CODEX_TRANSPORT: stdio/);
+  assert.match(readme, /docs\/SETUP\.md#managed-daemon-admission-and-rollback/);
+  assert.doesNotMatch(readme, /Hermes configuration[\s\S]{0,400}LCO_CODEX_TRANSPORT: daemon/);
+
+  for (const required of [
+    /#### Managed Daemon Admission And Rollback/,
+    /managed executable\s+realpath and hash/i,
+    /CLI\/managed\/app-server version tuple/i,
+    /socket\s+type\/mode\/owner\/inode/i,
+    /process id\/start time\/command/i,
+    /chmod 600/,
+    /shasum -a 256/,
+    /stat -f/,
+    /managed_codex_path=.*managed-path/,
+    /pgrep -f "\^\$\{managed_codex_path\} app-server --listen unix:\/\/\$"/,
+    /ps -p/,
+    /diff -rq/,
+    /codex app-server daemon stop/,
+    /pre-existing listener and never stop it/i
+  ]) {
+    assert.match(setup, required);
+  }
+
+  assert.match(operations, /\.\.\/docs\/SETUP\.md#managed-daemon-admission-and-rollback/);
+  assert.match(operations, /byte-identical/i);
+  assert.match(operations, /forbidden for a pre-existing or\s+unclassified listener/i);
+});
+
+test("public control docs use the route and identical-delivery facade", () => {
+  const readme = read("README.md");
+  const openclaw = read("docs/OPENCLAW_PLUGIN.md");
+
+  for (const [surface, content] of [
+    ["README", readme],
+    ["OpenClaw guide", openclaw]
+  ] as const) {
+    assert.match(content, /lco_codex_control_route/, `${surface} must name opaque routing`);
+    assert.match(content, /lco_codex_deliver/, `${surface} must name public delivery`);
+  }
+
+  assert.match(openclaw, /route → identical `lco_codex_deliver` dry-run →\s+approval → live delivery/i);
+  assert.match(openclaw, /route again[\s\S]+fresh active, turn-bound target/i);
+  assert.doesNotMatch(
+    openclaw,
+    /`public_facade`:[\s\S]{0,500}`lco_codex_control_dry_run`[\s\S]{0,100}`lco_codex_resume_thread`/
+  );
+});
+
 test("public operator docs explain the bounded lco drive dry-run workflow", () => {
   const setup = read("docs/SETUP.md");
   const openclaw = read("docs/OPENCLAW_PLUGIN.md");

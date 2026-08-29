@@ -72,8 +72,10 @@ Normal agents should start here:
    approved action.
 6. `lco_attention_inbox` for the compact attention queue.
 7. `lco_project_digest` for bounded provenance and handoff.
-8. `lco_codex_control_dry_run` for exact action hashes and approval packet.
-9. `lco_codex_resume_thread` only after the matching dry-run approval id.
+8. `lco_codex_control_route` for one opaque, expiring Codex target or the
+   explicit Desktop-observation route.
+9. `lco_codex_deliver` first with `dry_run:true`, then with the identical
+   bindings, `dry_run:false`, and the matching approval id.
 
 Use `workflow_detail`, `proof_debug`, and `internal_low_level` tools only when
 the facade output or a proof/debug task gives you a specific reason. Expert
@@ -120,19 +122,24 @@ Use the Codex detail tools instead of expanding entire sessions:
 - `lco_codex_session_management_map` when the agent needs the session-management
   view before recommending archive, fork, resume, or handoff.
 
-## Dry-Run Steer, Send, Or Resume
+## Route, Dry-Run, And Deliver
 
-1. Use `lco_codex_control_dry_run` before any control request.
-2. Inspect the dry-run target, action, `params_hash`, and any `message_hash`.
-3. Ask the user to approve the exact target and action.
-4. Only after approval, call the matching live tool with the returned
-   `approval_audit_id`.
-5. If the live tool reports a missing or mismatched audit id, stop and rerun the
-   dry-run.
+1. Call `lco_codex_control_route` to obtain one opaque, expiring target.
+2. Call `lco_codex_deliver` with `dry_run:true`.
+3. Inspect the target binding, action, `params_hash`, and any `message_hash`.
+4. Ask the user to approve that exact target and action.
+5. Repeat the identical `lco_codex_deliver` call with `dry_run:false` and the
+   returned `approval_audit_id`.
+6. If delivery reports a missing or mismatched audit id, stop and route again;
+   do not repair or reuse the rejected approval.
+7. Immediately before a separately approved interrupt, route again and require
+   a fresh active, turn-bound target. An idle delivery changes task state, so
+   never reuse its pre-delivery target for interrupt.
 
-Typical live tools after approval are `lco_codex_resume_thread`,
-`lco_codex_send_message`, `lco_codex_steer_thread`, and
-`lco_codex_interrupt_thread`.
+Use workflow-detail tools such as `lco_codex_control_dry_run`,
+`lco_codex_resume_thread`, `lco_codex_send_message`,
+`lco_codex_steer_thread`, and `lco_codex_interrupt_thread` only when the facade
+result explicitly routes to that lower-level fallback.
 
 ## Check Desktop Coherence
 
@@ -197,8 +204,10 @@ Typical live tools after approval are `lco_codex_resume_thread`,
 12. Run `lco_codex_active_thread_state` when the user asks which active Codex
     threads are running, blocked, stale, or need a nudge
 13. Recommend a next action with source refs
-14. If action is requested, run `lco_codex_control_dry_run`
-15. Wait for explicit approval before any live control
+14. If action is requested, run `lco_codex_control_route`, then
+    `lco_codex_deliver` with `dry_run:true`
+15. Wait for explicit approval, then repeat the identical delivery with
+    `dry_run:false` and the matching `approval_audit_id`
 
 ## Codex Desktop-First Daily Loop
 

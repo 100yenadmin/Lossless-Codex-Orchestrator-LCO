@@ -352,28 +352,77 @@ Omitting `LCO_DB_PATH` uses LCO's home-based default. If you set it explicitly,
 use an expanded absolute path because Hermes does not shell-expand `~` inside an
 environment-variable value.
 
-`LCO_CODEX_TRANSPORT` defaults to `stdio`. For the managed Eva operator flow,
-set it to `daemon` only after the Codex CLI proves that a compatible managed
-daemon owns the standard socket under `CODEX_HOME`:
+`LCO_CODEX_TRANSPORT` defaults to `stdio`.
+
+#### Managed Daemon Admission And Rollback
+
+For the managed Eva operator flow, set `LCO_CODEX_TRANSPORT=daemon` only after
+the Codex CLI proves that a compatible managed daemon owns the standard socket under `CODEX_HOME`:
 
 ```bash
 codex --version
 codex app-server daemon version
 ```
 
-If the version probe reports that no managed daemon is present, the operator
-may start one once through the supported Codex lifecycle and repeat the probe:
+Classify the listener before changing Eva. A running listener is pre-existing:
+record `preexisting` and never stop it. If the version probe reports that no
+managed daemon is present, the operator may start one once through the
+supported Codex lifecycle and repeat the probe:
 
 ```bash
 codex app-server daemon start
 codex app-server daemon version
 ```
 
-Reuse a compatible listener that was already present and never stop it as part
-of an LCO rollback. If a listener is present but its owner or compatibility
-cannot be classified, stop before changing the Eva profile. A daemon started
-for a bounded candidate may be stopped only after its original executable,
-version, process, and socket fingerprint still match.
+After the listener is running, capture its full local fingerprint in a private
+mode-600 receipt. This macOS/zsh procedure records the managed executable
+realpath and hash, CLI/managed/app-server version tuple, socket realpath, socket
+type/mode/owner/inode, and the single owning process id/start time/command:
+
+```bash
+daemon_receipt_dir="$(mktemp -d "${TMPDIR%/}/lco-daemon-admission.XXXXXX")"
+chmod 700 "$daemon_receipt_dir"
+codex app-server daemon version > "$daemon_receipt_dir/daemon-version.json"
+chmod 600 "$daemon_receipt_dir/daemon-version.json"
+node -e 'const fs=require("fs");const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(j.status!=="running"||!j.managedCodexPath||!j.socketPath||!j.cliVersion||!j.managedCodexVersion||!j.appServerVersion)process.exit(1)' "$daemon_receipt_dir/daemon-version.json"
+node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.managedCodexPath)' "$daemon_receipt_dir/daemon-version.json" > "$daemon_receipt_dir/managed-path"
+node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(j.socketPath)' "$daemon_receipt_dir/daemon-version.json" > "$daemon_receipt_dir/socket-path"
+managed_codex_path="$(<"$daemon_receipt_dir/managed-path")"
+managed_codex_real="$(realpath "$managed_codex_path")"
+daemon_socket_real="$(realpath "$(<"$daemon_receipt_dir/socket-path")")"
+printf '%s\n' "$managed_codex_real" > "$daemon_receipt_dir/managed-realpath"
+printf '%s\n' "$daemon_socket_real" > "$daemon_receipt_dir/socket-realpath"
+shasum -a 256 "$managed_codex_real" > "$daemon_receipt_dir/managed-sha256"
+test "$(stat -f '%Sp' "$daemon_socket_real")" = 'srw-------'
+test "$(stat -f '%u' "$daemon_socket_real")" = "$(id -u)"
+stat -f '%Sp %u %g %i' "$daemon_socket_real" > "$daemon_receipt_dir/socket-stat"
+daemon_pid="$(pgrep -f "^${managed_codex_path} app-server --listen unix://$")"
+test -n "$daemon_pid"
+test "$(printf '%s\n' "$daemon_pid" | wc -l | tr -d ' ')" = '1'
+ps -p "$daemon_pid" -o pid= -o lstart= -o command= > "$daemon_receipt_dir/process"
+chmod 600 "$daemon_receipt_dir"/*
+```
+
+If any command fails, or the listener cannot be classified as compatible, stop
+before changing Eva. Record `preexisting` for a listener that was already
+running. Record `candidate-created` only after the one bounded start succeeds
+and the complete post-start fingerprint above passes.
+
+On rollback, reuse the pre-existing listener and never stop it. A
+candidate-created daemon may be stopped only after repeating the entire capture
+into a second mode-600 directory and proving every fingerprint file is byte-for-
+byte identical to the original:
+
+```bash
+test "$daemon_origin" = 'candidate-created'
+diff -rq "$daemon_receipt_dir" "$daemon_recheck_dir"
+codex app-server daemon stop
+```
+
+Do not run the stop command if `diff` reports any change, the origin is
+`preexisting` or unknown, or the recheck is incomplete. Keep detailed process
+and path evidence local; public receipts retain only hashes, versions,
+booleans, timing, and reason classes.
 
 The Codex CLI owns daemon lifecycle. LCO only connects to the proven socket: it
 never bootstraps or starts/restarts Codex, never enables Codex Remote Control,

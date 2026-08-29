@@ -197,9 +197,17 @@ codex app-server daemon version
 Reuse a compatible daemon that is already present. If none is present, the
 operator may run one bounded `codex app-server daemon start` and then repeat the
 version probe. Do not use bootstrap, Remote Control, or a Codex restart. Do not
-stop a pre-existing daemon. A candidate-created daemon may be stopped only when
-its executable, version, process, and socket fingerprint still match the
-recorded start.
+stop a pre-existing daemon.
+
+Before any Eva change, follow the executable
+[managed-daemon admission and rollback procedure](../docs/SETUP.md#managed-daemon-admission-and-rollback).
+It captures and rechecks the managed executable realpath/hash, full version
+tuple, socket realpath/mode/owner/inode, and the single process id/start
+time/command in private mode-600 receipts. Any missing, multiple, or changed
+field aborts admission or stop. A candidate-created daemon may be stopped only
+when its complete recheck is byte-identical to the recorded post-start
+fingerprint; `codex app-server daemon stop` is forbidden for a pre-existing or
+unclassified listener.
 
 The current Eva acceptance attempt proved a compatible managed daemon but
 stopped before activation because the required 1.6.1 Telegram baseline did not

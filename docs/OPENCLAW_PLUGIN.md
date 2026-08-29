@@ -76,7 +76,7 @@ compact operator path from detail, proof, and low-level recovery surfaces:
 - `public_facade`: the normal 9-tool operator path:
   `lco_find`, `lco_prepared_inbox`, `lco_describe_ref`, `lco_expand_query`,
   `lco_recent_sessions`, `lco_attention_inbox`, `lco_project_digest`,
-  `lco_codex_control_dry_run`, and `lco_codex_resume_thread`.
+  `lco_codex_control_route`, and `lco_codex_deliver`.
 - `workflow_detail`: supporting read/detail/setup/control tools that a facade
   result may route to. `lco_doctor` is in this tier so restricted `standard`
   profiles still have a setup/readiness check.
@@ -102,6 +102,16 @@ public target for user-facing tool names. The historical `loo_*` names remain
 maintained compatibility aliases for at least two minor releases; each compat
 alias points at its `lco_*` target with `metadata.aliasOf`. QA coverage credits
 the canonical target rather than adding duplicate coverage obligations.
+
+For normal Codex control, call `lco_codex_control_route` to obtain one opaque,
+expiring target. Call `lco_codex_deliver` with its default `dry_run:true`, show
+the returned hashes and approval packet, then repeat the identical delivery
+with `dry_run:false` and the matching `approval_audit_id`. The live call sends
+to an idle task or steers the currently active turn after revalidating the
+route. Immediately before a separately approved interrupt, route again and
+require a fresh active, turn-bound target; never reuse a pre-delivery idle
+target for interrupt. Use the workflow-detail dry-run/resume/send/steer tools
+only when the facade result names that lower-level fallback.
 
 Safety details:
 
@@ -130,7 +140,10 @@ Safety details:
   not piggyback telemetry, tags, or control metadata inside tool args unless the
   selected tool explicitly declares those fields.
 - Optional LCM peer recall uses `LCO_LCM_DB_PATHS` or per-call `lcm_db_paths` and opens those DBs read-only.
-- Control tools should run `dry_run=true` first.
+- Control tools must preserve route → identical `lco_codex_deliver` dry-run →
+  approval → live delivery on the public facade.
+- The dry-run-first policy is also expressed as `dry_run=true` in operator
+  evidence and command-style examples.
 - Live control requires `approval_audit_id` from the dry-run result.
 - Dry-run output includes `params_hash` and message-bearing actions include `message_hash`; agents should echo those local keyed fingerprints before asking the user to approve live control.
 - `lco_audit_tail` returns recent fingerprinted audit records without raw prompt text.
