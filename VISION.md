@@ -109,10 +109,12 @@ Current target:
   passed for the named local path. A distinct Telegram readiness marker and
   separate 1.6.1 baseline then passed, so Eva was activated on the canonical
   1.7.0 server with daemon transport and passed gateway, MCP, and allowlist
-  health. The one #808 Telegram canary produced no reply within its 120-second
+  health. The one #799 runtime-gate Telegram canary produced no reply within
+  its 120-second
   acceptance window, so Eva was rolled back to proved-healthy 1.6.1 with daemon
-  transport absent. No `runtime_safe` claim has been earned; issues #808 and
-  #799 remain the lifecycle source of truth.
+  transport absent. No `runtime_safe` claim has been earned; #799 remains the
+  runtime lifecycle source of truth, while #808 retains only its bounded
+  idle-route diagnostic evidence.
 - Treat `lco qa-lab tool-coverage --coverage-policy full --strict` as the
   full-surface GA gate over the canonical tool surface. Missing product evidence
   is a blocker unless release copy explicitly excludes that tool or workflow.

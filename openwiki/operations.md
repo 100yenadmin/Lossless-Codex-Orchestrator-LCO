@@ -212,13 +212,14 @@ unclassified listener.
 The final-main Eva attempt proved the immutable 1.7.0 ladder through a
 compatible pre-existing managed daemon. A distinct Telegram readiness marker
 and separate 1.6.1 baseline passed, and Eva activation then passed gateway,
-80-tool MCP, and equal sixteen-tool allowlists. The single #808 Telegram canary
+80-tool MCP, and equal sixteen-tool allowlists. The single #799 runtime-gate
+Telegram canary
 produced no reply within its 120-second acceptance window. The fixed rollback
 restored exact 1.6.1, absent daemon transport, gateway, 76-tool MCP, equal
 allowlists, and a same-conversation health reply. The pre-existing daemon was
-never stopped. Issues #808 and #799 remain the authoritative runtime gate; no
-`runtime_safe` claim follows from source, daemon, inactive-package, activation,
-or rollback health alone.
+never stopped. Issue #799 remains the authoritative runtime gate; #808 retains
+only its bounded idle-route diagnostic evidence. No `runtime_safe` claim follows
+from source, daemon, inactive-package, activation, or rollback health alone.
 
 ## Versioning
 

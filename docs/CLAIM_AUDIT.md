@@ -75,7 +75,8 @@ The current Eva runtime gate remains open. The final-main immutable 1.7.0
 inactive-package ladder and compatible pre-existing managed-daemon admission
 passed. A distinct Telegram readiness marker and separate 1.6.1 baseline also
 passed, and Eva activation reached healthy gateway, 80-tool MCP, and equal
-sixteen-tool allowlists. The one #808 Telegram canary then produced no reply
+sixteen-tool allowlists. The one #799 runtime-gate Telegram canary then produced
+no reply
 within its 120-second acceptance window. Exact 1.6.1, absent daemon transport,
 gateway, 76-tool MCP, allowlists, and a rollback health reply were restored.
 This is blocker class `eva_17_808_no_reply_within_120s`, not an outage claim,
