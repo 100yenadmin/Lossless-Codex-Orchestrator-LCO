@@ -140,7 +140,10 @@ diff() { return ${diffStatus}; }
 codex() { printf 'codex:%s\\n' "$*"; }
 ${rollback[1]}
 `;
-    return spawnSync("zsh", ["-c", script], { encoding: "utf8" });
+    const shell = process.platform === "darwin" ? "zsh" : "bash";
+    const result = spawnSync(shell, ["-c", script], { encoding: "utf8" });
+    assert.equal(result.error, undefined, `${shell} must execute the documented guard`);
+    return result;
   }
 
   const preexisting = run("preexisting", 0);
