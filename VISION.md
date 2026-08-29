@@ -105,11 +105,14 @@ Current target:
   stage ladder explicit: initialize/list 30s, route 15s, dry-run 15s, live
   deliver 15s, and completion/outer idle acceptance 120s; Hermes retains a
   separate 300s per-tool timeout.
-- Managed-daemon admission and the inactive 1.7.0 ladder have passed for the
-  named local path, but Eva activation remains blocked on its required
-  same-conversation Telegram baseline. Eva therefore remains on 1.6.1 and no
-  `runtime_safe` claim has been earned; issues #808 and #799 remain the
-  lifecycle source of truth.
+- Final-main managed-daemon admission and the immutable 1.7.0 inactive ladder
+  passed for the named local path. A distinct Telegram readiness marker and
+  separate 1.6.1 baseline then passed, so Eva was activated on the canonical
+  1.7.0 server with daemon transport and passed gateway, MCP, and allowlist
+  health. The one #808 Telegram canary produced no reply within its 120-second
+  acceptance window, so Eva was rolled back to proved-healthy 1.6.1 with daemon
+  transport absent. No `runtime_safe` claim has been earned; issues #808 and
+  #799 remain the lifecycle source of truth.
 - Treat `lco qa-lab tool-coverage --coverage-policy full --strict` as the
   full-surface GA gate over the canonical tool surface. Missing product evidence
   is a blocker unless release copy explicitly excludes that tool or workflow.

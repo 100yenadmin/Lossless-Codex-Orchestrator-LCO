@@ -71,12 +71,15 @@ across the orchestrator surfaces that share the same local index.
   over approved prepared-card and summary-leaf refs; it does not call a model,
   read raw transcripts, feed current `safe_text`, or claim true compaction.
 
-The current Eva runtime gate remains open. The immutable 1.7.0 inactive-package
-ladder and a compatible managed-daemon admission passed, but the required exact
-same-conversation 1.6.1 Telegram baseline did not reply after its one bounded
-gateway recovery. Eva was not activated and remained on exact 1.6.1 with daemon
-transport absent. This is a runtime blocker, not an outage claim, and does not
-change the published 1.7.0 package claim above.
+The current Eva runtime gate remains open. The final-main immutable 1.7.0
+inactive-package ladder and compatible pre-existing managed-daemon admission
+passed. A distinct Telegram readiness marker and separate 1.6.1 baseline also
+passed, and Eva activation reached healthy gateway, 80-tool MCP, and equal
+sixteen-tool allowlists. The one #808 Telegram canary then produced no reply
+within its 120-second acceptance window. Exact 1.6.1, absent daemon transport,
+gateway, 76-tool MCP, allowlists, and a rollback health reply were restored.
+This is blocker class `eva_17_808_no_reply_within_120s`, not an outage claim,
+and it does not change the published 1.7.0 package claim above.
 
 Compaction hook sidecars are marker-only. Public and release-facing copy may say
 `compaction observed`, but must not claim the generated compaction summary was

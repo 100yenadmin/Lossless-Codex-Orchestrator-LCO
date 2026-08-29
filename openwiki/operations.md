@@ -209,12 +209,16 @@ when its complete recheck is byte-identical to the recorded post-start
 fingerprint; `codex app-server daemon stop` is forbidden for a pre-existing or
 unclassified listener.
 
-The current Eva acceptance attempt proved a compatible managed daemon but
-stopped before activation because the required 1.6.1 Telegram baseline did not
-return the exact same-conversation reply after its one bounded recovery. Eva
-remained on 1.6.1 with daemon transport absent. Issues #808 and #799 remain the
-authoritative runtime gate; no `runtime_safe` claim follows from daemon or
-inactive-package proof alone.
+The final-main Eva attempt proved the immutable 1.7.0 ladder through a
+compatible pre-existing managed daemon. A distinct Telegram readiness marker
+and separate 1.6.1 baseline passed, and Eva activation then passed gateway,
+80-tool MCP, and equal sixteen-tool allowlists. The single #808 Telegram canary
+produced no reply within its 120-second acceptance window. The fixed rollback
+restored exact 1.6.1, absent daemon transport, gateway, 76-tool MCP, equal
+allowlists, and a same-conversation health reply. The pre-existing daemon was
+never stopped. Issues #808 and #799 remain the authoritative runtime gate; no
+`runtime_safe` claim follows from source, daemon, inactive-package, activation,
+or rollback health alone.
 
 ## Versioning
 
