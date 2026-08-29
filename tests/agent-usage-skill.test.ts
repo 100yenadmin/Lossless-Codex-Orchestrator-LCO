@@ -36,7 +36,7 @@ test("OpenClaw agent usage skill teaches bounded recall and approval-gated contr
     /Describe this session/i,
     /Expand 1k\/4k/i,
     /Find plans, finals, and touched files/i,
-    /Dry-run steer, send, or resume/i,
+    /Route, dry-run, and deliver/i,
     /lco_doctor/,
     /lco_search_sessions/,
     /lco_describe_ref/,
@@ -46,6 +46,8 @@ test("OpenClaw agent usage skill teaches bounded recall and approval-gated contr
     /kind: "plans"/,
     /kind: "final_messages"/,
     /kind: "touched_files"/,
+    /lco_codex_control_route/,
+    /lco_codex_deliver/,
     /lco_codex_control_dry_run/,
     /approval_audit_id/,
     /do not read raw transcripts/i,
@@ -79,8 +81,8 @@ test("OpenClaw agent usage skill starts normal operators from the compact public
     /lco_recent_sessions/,
     /lco_attention_inbox/,
     /lco_project_digest/,
-    /lco_codex_control_dry_run/,
-    /lco_codex_resume_thread/,
+    /lco_codex_control_route/,
+    /lco_codex_deliver/,
     /workflow_detail/,
     /proof_debug/,
     /internal_low_level/,
@@ -96,6 +98,10 @@ test("OpenClaw agent usage skill starts normal operators from the compact public
   assert.match(recommendedLoop, /Start with `lco_find` when the user gives a query/);
   assert.match(recommendedLoop, /`lco_prepared_inbox`\s+when the user asks what needs attention/);
   assert.match(recommendedLoop, /workflow-detail fallbacks/i);
+  assert.match(recommendedLoop, /`lco_codex_control_route`[\s\S]+`lco_codex_deliver` with `dry_run:true`/);
+  assert.match(recommendedLoop, /identical delivery[\s\S]+`dry_run:false`[\s\S]+`approval_audit_id`/);
+  assert.doesNotMatch(facade, /lco_codex_control_dry_run/);
+  assert.doesNotMatch(facade, /lco_codex_resume_thread/);
   assert.doesNotMatch(facade, /raw transcripts/i);
   assert.doesNotMatch(facade, /loo_\*/i);
   assert.doesNotMatch(skill, /#434/);

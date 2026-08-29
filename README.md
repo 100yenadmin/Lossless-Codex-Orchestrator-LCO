@@ -312,8 +312,9 @@ For an agent or MCP client, start with the normal operator path:
 | 7 | `lco_project_digest` | A project-level handoff brief. |
 | 8 | `lco_codex_control_route` | An expiring opaque reference for one daemon-owned Codex task, or an explicit Desktop-observation blocker. |
 | 9 | `lco_codex_deliver` | A dry-run-first delivery that sends when idle or steers the matching active turn. |
-| 10 | `lco_codex_control_dry_run` | A preview packet for a lower-level exact Codex action. |
-| 11 | `lco_codex_resume_thread` | Resume a Codex thread after the dry-run packet is approved. |
+
+Lower-level dry-run, resume, send, steer, and interrupt tools remain explicit
+workflow-detail fallbacks; they are not extra public-facade steps.
 
 The packaged agent playbook is
 [skills/lossless-openclaw-orchestrator/SKILL.md](skills/lossless-openclaw-orchestrator/SKILL.md).
@@ -379,18 +380,20 @@ mcp_servers:
     enabled: true
     env:
       LCO_TOOL_PROFILE: standard
-      LCO_CODEX_TRANSPORT: daemon
+      LCO_CODEX_TRANSPORT: stdio
 ```
 
 Omitting `LCO_DB_PATH` uses LCO's home-based default. If you set it explicitly,
 use an expanded absolute path because Hermes does not shell-expand `~` inside an
 environment-variable value.
 
-`LCO_CODEX_TRANSPORT` defaults to `stdio` for compatibility. The opt-in
-`daemon` mode connects only to the already-running local Codex managed daemon
-through its Unix socket. LCO does not start or restart the daemon and does not
-enable Codex Remote Control. Set `LCO_CODEX_DAEMON_SOCKET` only for an explicit
-absolute local override; `LCO_CODEX_APP_SERVER_ARGS` remains stdio-only.
+`LCO_CODEX_TRANSPORT` defaults to `stdio`, which is the supported first-run
+Hermes configuration above. The managed Eva operator flow may opt in to
+`daemon` only after completing the executable admission and rollback procedure
+in [the setup guide](docs/SETUP.md#managed-daemon-admission-and-rollback).
+LCO does not start or restart the daemon and does not enable Codex Remote
+Control. Set `LCO_CODEX_DAEMON_SOCKET` only for an explicit absolute local
+override; `LCO_CODEX_APP_SERVER_ARGS` remains stdio-only.
 
 For remote operation, Eva should call `lco_codex_control_route` first. A
 selected `app_server` route is safe for LCO daemon/CLI task control. A
