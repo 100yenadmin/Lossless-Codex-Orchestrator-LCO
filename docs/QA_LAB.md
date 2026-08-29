@@ -136,12 +136,15 @@ pass is not full-surface GA proof.
 
 ## Runtime Acceptance Status
 
-The immutable 1.7.0 inactive-package ladder passed for the named Eva package
-path. A later managed-daemon admission also passed, but Eva activation did not:
-the required same-conversation 1.6.1 Telegram baseline produced no exact reply
-after its one bounded gateway recovery. The candidate-created daemon was
-stopped, Eva remained on exact 1.6.1 with daemon transport absent, and issues
-[#808](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/808)
+The final-main immutable 1.7.0 inactive-package ladder passed for the named Eva
+package path through a compatible pre-existing managed daemon. A distinct
+Telegram readiness marker and separate 1.6.1 baseline passed, so Eva activated
+the canonical 1.7.0 server and passed gateway, 80-tool MCP, and equal
+sixteen-tool allowlist health. The one #808 Telegram canary produced no reply
+within its 120-second acceptance window, so the fixed rollback restored exact
+1.6.1, absent daemon transport, gateway, 76-tool MCP, equal allowlists, and a
+same-conversation health reply. The pre-existing daemon was never stopped.
+Issues [#808](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/808)
 and [#799](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/799)
 remain the lifecycle source of truth. This result is not Eva `runtime_safe` and
 does not weaken the baseline-before-activation gate.
